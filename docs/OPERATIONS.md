@@ -49,6 +49,14 @@ Due generation checks authorization and account, studio, Astra, workspace and sc
 
 Creation uses a client-generated request ID retained across retries: the first saved request for that ID wins. Creating a different schedule requires a fresh ID. Controls and their audit records commit together. Generation inserts a unique root and advances its schedule in one transaction; the counter advances only if that exact root exists at the current occurrence. Missed intervals produce one catch-up run, not a backlog of every missed slot. The registry is capped at 10,000 schedules, independent of execution capacity.
 
+## Agent assignment and retirement
+
+Use the network’s branch controls to create a specialist under the relevant studio, then assign the required production role at studio or account level. Account assignments override the studio’s default. A configuration can exist without receiving work. Creating a million definitions does not provision a million API clients or increase any worker, token or provider limit.
+
+Assignment changes apply to children created by later completed Astra plans. Existing tasks retain their target, including tasks already queued. Pausing a routed agent holds its tasks and descendants. Inspect the actual queue and worker heartbeat to distinguish configured, enabled, queued and running states.
+
+Before retiring a custom agent, open **Inspect routing assignments** and reset its references, resolve unfinished tasks, and retire nonretired child configurations. Completed history remains available. A restored configuration stays paused; restore and enable its ancestors first. Built-in fallback agents are permanent. A conflict message means another change won the revision race; refresh the selected configuration or assignment before retrying.
+
 ## Supervision and recovery
 
 The included Compose service uses `restart: unless-stopped`, a non-root user, dropped capabilities, read-only root filesystem, persistent journal storage, bounded memory and log rotation. Restart policy is not an uptime guarantee. Configure independent host availability alerts and monitor worker heartbeats, queue age, error rate, oldest uncertain uploads and provider quotas before relying on 24/7 operation.
@@ -61,4 +69,4 @@ Back up D1 and R2 using the hosting provider's supported backup/export facilitie
 - Run `npm run test:worker` for worker safety, actual queue SQL and registry tests.
 - The local integration script requires a disposable local database and generated sample MP4. It rotates the development identity's worker key and creates fixture records. Do not run it on production.
 - Hosted smoke verification must use the authenticated owner's access. A successful deployment status proves artifact publication, not live model execution or social API approval.
-- Current direct publishing covers private YouTube uploads only. Other adapters, OAuth onboarding, dynamic agent provisioning, retention automation, hard monetary limits, multi-host scale and operational SLA verification remain future work.
+- Current direct publishing covers private YouTube uploads only. Other adapters, OAuth onboarding, automatic model infrastructure provisioning, retention automation, hard monetary limits, multi-host scale and operational SLA verification remain future work.

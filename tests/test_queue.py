@@ -18,7 +18,7 @@ class QueueTests(unittest.TestCase):
         for owner in ['alice','bob']:
             self.db.execute('INSERT INTO settings(owner) VALUES(?)',(owner,))
             for id,parent in [('astra',None),('ambient','astra'),('ambient-writer','ambient'),('ambient-editor','ambient')]:
-                self.db.execute('INSERT INTO agents(owner,id,parent,name,role,lane,model,instructions,color) VALUES(?,?,?,?,?,?,?,?,?)',(owner,id,parent,id,'writer','ambient','gpt-6-astra','original work','#fff'))
+                self.db.execute('INSERT INTO agents(owner,id,parent,name,role,lane,model,instructions,color,core) VALUES(?,?,?,?,?,?,?,?,?,1)',(owner,id,parent,id,'writer','ambient','gpt-6-astra','original work','#fff'))
     def job(self,id,owner='alice',agent='ambient-writer',kind='draft',**kw):
         data={'id':id,'owner':owner,'agent':agent,'title':id,'brief':'Original work','lane':'ambient','mode':'live','kind':kind,'created':self.now,'scheduled':self.now,**kw}
         self.db.execute('INSERT INTO jobs('+','.join(data)+') VALUES('+','.join('?' for _ in data)+')',list(data.values()))

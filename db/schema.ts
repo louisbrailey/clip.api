@@ -16,6 +16,7 @@ export const settings = sqliteTable(
     daily_tokens: integer().notNull().default(100000),
     worker_hash: text(),
     worker_seen: integer(),
+    agent_total: integer().notNull().default(0),
   },
   (t) => [uniqueIndex("settings_worker_hash").on(t.worker_hash)],
 );
@@ -33,8 +34,21 @@ export const agents = sqliteTable(
     concurrency: integer().notNull().default(2),
     instructions: text().notNull(),
     color: text().notNull(),
+    task_role: text().notNull().default("writer"),
+    core: integer().notNull().default(0),
+    archived: integer().notNull().default(0),
+    depth: integer().notNull().default(0),
+    revision: integer().notNull().default(1),
+    child_count: integer().notNull().default(0),
+    search_name: text().notNull().default(""),
   },
-  (t) => [primaryKey({ columns: [t.owner, t.id] })],
+  (t) => [
+    primaryKey({ columns: [t.owner, t.id] }),
+    index("agents_children").on(t.owner, t.parent, t.id),
+    index("agents_retirement").on(t.owner, t.parent, t.archived),
+    index("agents_search").on(t.owner, t.search_name, t.id),
+    index("agents_core").on(t.owner, t.core),
+  ],
 );
 export const accounts = sqliteTable(
   "accounts",
@@ -107,6 +121,7 @@ export const jobs = sqliteTable(
   },
   (t) => [
     index("jobs_claim").on(t.owner, t.mode, t.status, t.scheduled),
+    index("jobs_agent_status").on(t.owner, t.agent, t.status),
     index("jobs_parent").on(t.owner, t.parent),
     index("jobs_budget").on(t.owner, t.created),
     index("jobs_account").on(t.owner, t.account, t.status),
@@ -168,5 +183,20 @@ export const schedules = sqliteTable(
   (t) => [
     index("schedules_due").on(t.owner, t.mode, t.paused, t.next_run),
     index("schedules_account").on(t.owner, t.account),
+  ],
+);
+
+export const agentRoutes = sqliteTable(
+  "agent_routes",
+  {
+    owner: text().notNull(),
+    scope: text().notNull(),
+    role: text().notNull(),
+    agent: text(),
+    revision: integer().notNull().default(1),
+  },
+  (t) => [
+    primaryKey({ columns: [t.owner, t.scope, t.role] }),
+    index("agent_routes_target").on(t.owner, t.agent, t.scope, t.role),
   ],
 );

@@ -74,9 +74,9 @@ try:
     check(claim(key)[1]['job'] is None,'global pause blocks new machine dispatch')
     action('settings',paused=False,concurrency=4,daily_tokens=100000)
     a=next(a for a in state()['agents'] if a['id']=='ambient')
-    action('agent',id=a['id'],model=a['model'],concurrency=a['concurrency'],instructions=a['instructions'],paused=True)
+    action('agent',revision=next(v for v in state()['agents'] if v['id']==a['id'])['revision'],id=a['id'],model=a['model'],concurrency=a['concurrency'],instructions=a['instructions'],paused=True)
     check(claim(key)[1]['job'] is None,'studio pause blocks descendant tasks')
-    action('agent',id=a['id'],model=a['model'],concurrency=a['concurrency'],instructions=a['instructions'],paused=False)
+    action('agent',revision=next(v for v in state()['agents'] if v['id']==a['id'])['revision'],id=a['id'],model=a['model'],concurrency=a['concurrency'],instructions=a['instructions'],paused=False)
     while True:
         code,c=claim(key)
         if not c['job']:break

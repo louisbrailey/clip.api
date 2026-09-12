@@ -1,0 +1,105 @@
+{
+  "scope": "Local SQLite fixture only; not live D1 or concurrent model execution",
+  "agent_definitions": 1000000,
+  "seed_seconds": 3.891,
+  "database_bytes": 337715200,
+  "sqlite_version": "3.51.0",
+  "measurements": [
+    {
+      "label": "first prefix page",
+      "rows": 21,
+      "elapsed_ms": 0.134,
+      "approximate_vm_steps": 1500,
+      "json_bytes": 8946,
+      "query_plan": [
+        "SEARCH a USING INDEX agents_search (owner=? AND (search_name,id)>(?,?) AND search_name<?)",
+        "CORRELATED SCALAR SUBQUERY 1",
+        "SEARCH j USING COVERING INDEX jobs_agent_status (owner=? AND agent=? AND status=?)",
+        "CORRELATED SCALAR SUBQUERY 2",
+        "SEARCH j USING COVERING INDEX jobs_agent_status (owner=? AND agent=? AND status=?)",
+        "CORRELATED SCALAR SUBQUERY 3",
+        "SEARCH r USING COVERING INDEX agent_routes_target (owner=? AND agent=?)"
+      ]
+    },
+    {
+      "label": "late unique page",
+      "rows": 21,
+      "elapsed_ms": 0.051,
+      "approximate_vm_steps": 1600,
+      "json_bytes": 8946,
+      "query_plan": [
+        "SEARCH a USING INDEX agents_search (owner=? AND (search_name,id)>(?,?) AND search_name<?)",
+        "CORRELATED SCALAR SUBQUERY 1",
+        "SEARCH j USING COVERING INDEX jobs_agent_status (owner=? AND agent=? AND status=?)",
+        "CORRELATED SCALAR SUBQUERY 2",
+        "SEARCH j USING COVERING INDEX jobs_agent_status (owner=? AND agent=? AND status=?)",
+        "CORRELATED SCALAR SUBQUERY 3",
+        "SEARCH r USING COVERING INDEX agent_routes_target (owner=? AND agent=?)"
+      ]
+    },
+    {
+      "label": "late repeated-name page",
+      "rows": 21,
+      "elapsed_ms": 0.046,
+      "approximate_vm_steps": 1600,
+      "json_bytes": 8904,
+      "query_plan": [
+        "SEARCH a USING INDEX agents_search (owner=? AND (search_name,id)>(?,?) AND search_name<?)",
+        "CORRELATED SCALAR SUBQUERY 1",
+        "SEARCH j USING COVERING INDEX jobs_agent_status (owner=? AND agent=? AND status=?)",
+        "CORRELATED SCALAR SUBQUERY 2",
+        "SEARCH j USING COVERING INDEX jobs_agent_status (owner=? AND agent=? AND status=?)",
+        "CORRELATED SCALAR SUBQUERY 3",
+        "SEARCH r USING COVERING INDEX agent_routes_target (owner=? AND agent=?)"
+      ]
+    },
+    {
+      "label": "narrow prefix final page",
+      "rows": 4,
+      "elapsed_ms": 0.019,
+      "approximate_vm_steps": 400,
+      "json_bytes": 1704,
+      "query_plan": [
+        "SEARCH a USING INDEX agents_search (owner=? AND (search_name,id)>(?,?) AND search_name<?)",
+        "CORRELATED SCALAR SUBQUERY 1",
+        "SEARCH j USING COVERING INDEX jobs_agent_status (owner=? AND agent=? AND status=?)",
+        "CORRELATED SCALAR SUBQUERY 2",
+        "SEARCH j USING COVERING INDEX jobs_agent_status (owner=? AND agent=? AND status=?)",
+        "CORRELATED SCALAR SUBQUERY 3",
+        "SEARCH r USING COVERING INDEX agent_routes_target (owner=? AND agent=?)"
+      ]
+    },
+    {
+      "label": "missing prefix",
+      "rows": 0,
+      "elapsed_ms": 0.009,
+      "approximate_vm_steps": 0,
+      "json_bytes": 2,
+      "query_plan": [
+        "SEARCH a USING INDEX agents_search (owner=? AND (search_name,id)>(?,?) AND search_name<?)",
+        "CORRELATED SCALAR SUBQUERY 1",
+        "SEARCH j USING COVERING INDEX jobs_agent_status (owner=? AND agent=? AND status=?)",
+        "CORRELATED SCALAR SUBQUERY 2",
+        "SEARCH j USING COVERING INDEX jobs_agent_status (owner=? AND agent=? AND status=?)",
+        "CORRELATED SCALAR SUBQUERY 3",
+        "SEARCH r USING COVERING INDEX agent_routes_target (owner=? AND agent=?)"
+      ]
+    },
+    {
+      "label": "late child page",
+      "rows": 13,
+      "elapsed_ms": 0.061,
+      "approximate_vm_steps": 900,
+      "json_bytes": 5524,
+      "query_plan": [
+        "SEARCH a USING INDEX agents_children (owner=? AND parent=? AND id>?)",
+        "CORRELATED SCALAR SUBQUERY 1",
+        "SEARCH j USING COVERING INDEX jobs_agent_status (owner=? AND agent=? AND status=?)",
+        "CORRELATED SCALAR SUBQUERY 2",
+        "SEARCH j USING COVERING INDEX jobs_agent_status (owner=? AND agent=? AND status=?)",
+        "CORRELATED SCALAR SUBQUERY 3",
+        "SEARCH r USING COVERING INDEX agent_routes_target (owner=? AND agent=?)"
+      ]
+    }
+  ]
+}

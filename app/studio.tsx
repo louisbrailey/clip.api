@@ -67,6 +67,7 @@ import {
 } from "@/lib/domain";
 
 import { SchedulePanel, ScheduleForm } from "./schedules";
+import NetworkWorkspace from "./network";
 
 const navigation = [
   { id: "network", name: "Orchestration", icon: Network },
@@ -204,6 +205,11 @@ function ControlRoom({ displayName }: { displayName: string }) {
       const r = await request(body);
       setMessage(r.message || success);
       await cache.invalidateQueries({ queryKey: ["workspace"] });
+      if (body.action === "agent")
+        await Promise.all([
+          cache.invalidateQueries({ queryKey: ["network"] }),
+          cache.invalidateQueries({ queryKey: ["agent-search"] }),
+        ]);
       return r;
     } catch (e) {
       setError(e instanceof Error ? e.message : "Request failed");
@@ -509,89 +515,26 @@ function ControlRoom({ displayName }: { displayName: string }) {
               )}
               {tab === "network" && (
                 <>
-                  <div className="network-layout">
-                    <section className="network-panel">
-                      <div className="panel-heading">
-                        <div>
-                          <span className="eyebrow">THE CONSTELLATION</span>
-                          <h2>
-                            Delegation network{" "}
-                            <span className="count-pill">
-                              {agents.length} agents
-                            </span>
-                          </h2>
-                        </div>
-                        <Badge
-                          value={
-                            workerOnline ? "worker connected" : "configured"
-                          }
-                        />
-                      </div>
-                      <NetworkGraph
-                        agents={agents}
-                        counts={s.agent_counts}
-                        selected={selected}
-                        onSelect={setSelected}
+                  <NetworkWorkspace
+                    state={s}
+                    accountPicker={(lane) => (
+                      <AccountPicker key={lane} purpose="routing" lane={lane} />
+                    )}
+                    onTasks={(id) => {
+                      navigate("queue");
+                      setSearch(id);
+                    }}
+                    inspector={(a, all) => (
+                      <AgentInspector
+                        key={`${a.id}-${a.revision}`}
+                        agent={a}
+                        agents={all}
+                        running={a.running}
+                        busy={busy}
+                        act={act}
                       />
-                      <div className="graph-footer">
-                        <span>
-                          <i style={{ background: "var(--lime)" }} />{" "}
-                          Orchestrator
-                        </span>
-                        <span>
-                          <i style={{ background: "#7ea5ff" }} /> Studio lead
-                        </span>
-                        <span>
-                          <i style={{ background: "#9cabbc" }} /> Worker
-                        </span>
-                        <span className="graph-hint">
-                          Select an agent to direct its work
-                        </span>
-                      </div>
-                    </section>
-                    <AgentInspector
-                      key={
-                        agent.id +
-                        agent.model +
-                        agent.instructions +
-                        agent.paused +
-                        agent.concurrency
-                      }
-                      agent={agent}
-                      agents={agents}
-                      running={s.agent_counts[agent.id]?.running || 0}
-                      busy={busy}
-                      act={act}
-                    />
-                  </div>
-                  <div className="studio-grid">
-                    {lanes.map((l, i) => {
-                      const a = agents.find((a) => a.id === l)!;
-                      const Icon = [Sparkles, Gamepad2, Target, AudioLines][i];
-                      return (
-                        <button
-                          className="studio-card"
-                          key={l}
-                          onClick={() => setSelected(l)}
-                        >
-                          <div
-                            className="studio-icon"
-                            style={{ color: a.color }}
-                          >
-                            <Icon size={21} />
-                          </div>
-                          <div>
-                            <h3>{a.name}</h3>
-                            <p>{a.role}</p>
-                            <span>
-                              {s.lane_counts[l]?.queued || 0} queued tasks
-                            </span>
-                          </div>
-                          <ArrowUpRight size={16} />
-                        </button>
-                      );
-                    })}
-                  </div>
+                    )}
+                  />
                   <div className="rehearsal-strip">
                     <div className="rehearsal-symbol">
                       <GitBranch size={24} />
@@ -1683,12 +1626,14 @@ function AgentInspector({
   busy: boolean;
   act: (v: Record<string, unknown>, s?: string) => Promise<unknown>;
 }) {
-  const ancestorPaused = agents.some(
-    (a) =>
-      (a.id === agent.parent || a.id === "astra") &&
-      a.id !== agent.id &&
-      a.paused,
-  );
+  let parent = agent.parent,
+    ancestorPaused = false;
+  for (let depth = 0; parent && depth < 8; depth++) {
+    const a = agents.find((a) => a.id === parent);
+    if (!a) break;
+    ancestorPaused ||= !!a.paused || !!a.archived;
+    parent = a.parent;
+  }
   return (
     <aside className="inspector">
       <div className="inspector-top">
@@ -1703,11 +1648,13 @@ function AgentInspector({
       <div className="agent-tags">
         <Badge
           value={
-            agent.paused
-              ? "paused"
-              : ancestorPaused
-                ? "parent paused"
-                : "enabled"
+            agent.archived
+              ? "retired"
+              : agent.paused
+                ? "paused"
+                : ancestorPaused
+                  ? "parent paused"
+                  : "enabled"
           }
         />
         <span>
@@ -1724,6 +1671,7 @@ function AgentInspector({
             {
               action: "agent",
               id: agent.id,
+              revision: agent.revision,
               paused: !!agent.paused,
               model: f.get("model"),
               concurrency: Number(f.get("concurrency")),
@@ -1762,11 +1710,11 @@ function AgentInspector({
           />
         </Field>
         <div className="button-row">
-          <Button disabled={busy} type="submit">
+          <Button disabled={busy || !!agent.archived} type="submit">
             Save changes
           </Button>
           <Button
-            disabled={busy}
+            disabled={busy || !!agent.archived}
             type="button"
             variant="outline"
             aria-label={agent.paused ? "Resume agent" : "Pause agent"}
@@ -1790,276 +1738,13 @@ function AgentInspector({
     </aside>
   );
 }
-function NetworkGraph({
-  agents,
-  counts,
-  selected,
-  onSelect,
-}: {
-  agents: Agent[];
-  counts: Record<string, Record<string, number>>;
-  selected: string;
-  onSelect: (s: string) => void;
-}) {
-  const [rotation, setRotation] = useState(-0.08),
-    [tilt, setTilt] = useState(0.24),
-    [zoom, setZoom] = useState(1),
-    [flat, setFlat] = useState(false);
-  const drag = useRef<{
-    x: number;
-    y: number;
-    rotation: number;
-    tilt: number;
-  } | null>(null);
-  const points = agents.map((a) => {
-    let x = 0,
-      y = -140,
-      z = 0;
-    const lane = lanes.indexOf(a.lane as (typeof lanes)[number]);
-    if (a.id !== "astra") {
-      x = (lane - 1.5) * 205;
-      y = a.parent === "astra" ? 15 : 165;
-      z =
-        a.parent === "astra"
-          ? lane % 2
-            ? 55
-            : -55
-          : a.id.endsWith("writer")
-            ? -85
-            : 85;
-      if (a.parent !== "astra") x += a.id.endsWith("writer") ? -46 : 46;
-    }
-    return {
-      ...a,
-      ...projectedPoint(
-        x,
-        y,
-        flat ? 0 : z,
-        flat ? 0 : rotation,
-        flat ? 0 : tilt,
-        zoom,
-      ),
-    };
-  });
-  return (
-    <div className="graph-area">
-      <div className="graph-toolbar">
-        <div className="segmented">
-          <button
-            className={!flat ? "active" : ""}
-            onClick={() => setFlat(false)}
-          >
-            <Box size={14} /> 3D map
-          </button>
-          <button
-            className={flat ? "active" : ""}
-            onClick={() => setFlat(true)}
-          >
-            <GitBranch size={14} /> Tree
-          </button>
-        </div>
-        <span>Drag to orbit</span>
-      </div>
-      <svg
-        className="network-svg"
-        viewBox="0 0 900 520"
-        aria-label="Interactive agent delegation tree"
-        onPointerDown={(e) => {
-          if ((e.target as Element).closest('[role="button"]')) return;
-          drag.current = { x: e.clientX, y: e.clientY, rotation, tilt };
-          e.currentTarget.setPointerCapture(e.pointerId);
-        }}
-        onPointerMove={(e) => {
-          if (drag.current && !flat) {
-            setRotation(
-              Math.max(
-                -0.7,
-                Math.min(
-                  0.7,
-                  drag.current.rotation + (e.clientX - drag.current.x) * 0.005,
-                ),
-              ),
-            );
-            setTilt(
-              Math.max(
-                -0.3,
-                Math.min(
-                  0.65,
-                  drag.current.tilt + (e.clientY - drag.current.y) * 0.004,
-                ),
-              ),
-            );
-          }
-        }}
-        onPointerUp={() => (drag.current = null)}
-        onPointerCancel={() => (drag.current = null)}
-      >
-        <defs>
-          <pattern
-            id="grid"
-            width="28"
-            height="28"
-            patternUnits="userSpaceOnUse"
-          >
-            <circle cx="1" cy="1" r=".7" fill="#34404d" />
-          </pattern>
-          <radialGradient id="halo">
-            <stop stopColor="#b7ef67" stopOpacity=".08" />
-            <stop offset="1" stopColor="#b7ef67" stopOpacity="0" />
-          </radialGradient>
-        </defs>
-        <rect width="900" height="520" fill="url(#grid)" />
-        <ellipse cx="450" cy="170" rx="220" ry="150" fill="url(#halo)" />
-        {points
-          .filter((p) => p.parent)
-          .map((p) => {
-            const parent = points.find((a) => a.id === p.parent)!;
-            return (
-              <g key={p.id}>
-                <path
-                  d={`M${parent.x},${parent.y + 22} C${parent.x},${(parent.y + p.y) / 2} ${p.x},${(parent.y + p.y) / 2} ${p.x},${p.y - 22}`}
-                  stroke={
-                    selected === p.id || selected === parent.id
-                      ? p.color
-                      : "#394551"
-                  }
-                  strokeWidth={selected === p.id ? 1.6 : 1}
-                  fill="none"
-                  opacity={p.paused ? 0.35 : 0.8}
-                />
-                <circle cx={p.x} cy={p.y - 22} r="2" fill={p.color} />
-              </g>
-            );
-          })}
-        {[...points]
-          .sort((a, b) => b.depth - a.depth)
-          .map((p) => {
-            const root = p.id === "astra",
-              lead = p.parent === "astra",
-              active = selected === p.id,
-              running = (counts[p.id]?.running || 0) > 0;
-            const w = root ? 160 : lead ? 158 : 108,
-              h = root ? 74 : lead ? 61 : 44;
-            return (
-              <g
-                className="graph-node"
-                key={p.id}
-                role="button"
-                tabIndex={0}
-                aria-pressed={active}
-                aria-label={`${p.name}, ${p.role}, ${p.paused ? "paused" : "enabled"}`}
-                transform={`translate(${p.x},${p.y})`}
-                onClick={() => onSelect(p.id)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    onSelect(p.id);
-                  }
-                }}
-                opacity={p.paused ? 0.55 : 1}
-              >
-                <rect
-                  x={-w / 2}
-                  y={-h / 2}
-                  width={w}
-                  height={h}
-                  rx={root ? 12 : 8}
-                  fill={active ? "#1c2b24" : root ? "#1a2424" : "#131b24"}
-                  stroke={active ? p.color : root ? "#607343" : "#3c4a59"}
-                  strokeWidth={active ? 1.8 : 1}
-                />
-                {root && (
-                  <text
-                    x="0"
-                    y="-10"
-                    fill={p.color}
-                    fontSize="12"
-                    textAnchor="middle"
-                    letterSpacing="2"
-                  >
-                    ✳ ORCHESTRATOR
-                  </text>
-                )}
-                <text
-                  x="0"
-                  y={root ? 12 : lead ? -2 : 5}
-                  textAnchor="middle"
-                  fill={root ? "#d8f5bc" : "#e0e7ee"}
-                  fontSize={root ? 23 : lead ? 15 : 13}
-                  fontWeight={root ? 600 : 500}
-                >
-                  {root
-                    ? "Astra"
-                    : lead
-                      ? p.name
-                      : p.id.endsWith("writer")
-                        ? "Writer"
-                        : "Editor"}
-                </text>
-                {(root || lead) && (
-                  <text
-                    x="0"
-                    y={root ? 29 : 17}
-                    textAnchor="middle"
-                    fill="#92a19c"
-                    fontSize="11"
-                  >
-                    {root
-                      ? "gpt-6-astra"
-                      : p.lane.toUpperCase() + " / 2 WORKERS"}
-                  </text>
-                )}
-                {running && (
-                  <circle
-                    cx={w / 2 - 10}
-                    cy={-h / 2 + 10}
-                    r="3"
-                    fill="#c6f688"
-                    className="pulse"
-                  />
-                )}
-              </g>
-            );
-          })}
-      </svg>
-      <div className="graph-controls">
-        <button
-          aria-label="Zoom out"
-          onClick={() => setZoom((z) => Math.max(0.65, z - 0.1))}
-        >
-          <Minus size={16} />
-        </button>
-        <span>{Math.round(zoom * 100)}%</span>
-        <button
-          aria-label="Zoom in"
-          onClick={() => setZoom((z) => Math.min(1.25, z + 0.1))}
-        >
-          <Plus size={16} />
-        </button>
-        <button
-          aria-label="Reset view"
-          onClick={() => {
-            setRotation(-0.08);
-            setTilt(0.24);
-            setZoom(1);
-          }}
-        >
-          <Maximize2 size={16} />
-        </button>
-      </div>
-      <div className="graph-id mono">
-        NETWORK / 001
-        <br />
-        <span>4 STUDIOS · 8 WORKERS</span>
-      </div>
-    </div>
-  );
-}
 
 function AccountPicker({
   purpose = "publish",
+  lane,
 }: {
-  purpose?: "publish" | "production";
+  lane?: string;
+  purpose?: "publish" | "production" | "routing";
 }) {
   const [search, setSearch] = useState(""),
     [offset, setOffset] = useState(0),
@@ -2078,10 +1763,10 @@ function AccountPicker({
     }[];
     total: number;
   }>({
-    queryKey: ["account-picker", purpose, search, offset],
+    queryKey: ["account-picker", purpose, lane, search, offset],
     queryFn: async () => {
       const r = await fetch(
-        `/api/control?picker=accounts&purpose=${purpose}&q=${encodeURIComponent(search)}&offset=${offset}`,
+        `/api/control?picker=accounts&purpose=${purpose}&q=${encodeURIComponent(search)}&offset=${offset}${lane ? `&lane=${encodeURIComponent(lane)}` : ""}`,
       );
       const v = (await r.json()) as {
         items: {
@@ -2106,7 +1791,7 @@ function AccountPicker({
     <>
       <Field
         label={
-          purpose === "production"
+          purpose !== "publish"
             ? "Find an authorized account"
             : "Find a YouTube account"
         }
@@ -2122,9 +1807,7 @@ function AccountPicker({
         />
       </Field>
       <Field
-        label={
-          purpose === "production" ? "Production account" : "YouTube account"
-        }
+        label={purpose !== "publish" ? "Production account" : "YouTube account"}
       >
         <select
           name="account"

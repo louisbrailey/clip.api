@@ -5,7 +5,7 @@ Development verification performed September 11–12, 2026. This file records th
 | Requirement | Evidence | Result / limitation |
 |---|---|---|
 | Portal source and client/server compilation | `npx tsc --noEmit`; `npm run build` | Passed during implementation; final rebuild passed for the source prepared for publication. |
-| Durable records and migrations | D1 local execution of all three generated migrations; actual HTTP workflows | Persisted agents, jobs, usage, audit events, account records and media metadata verified locally. |
+| Durable records and migrations | D1 local execution of all four generated migrations; actual HTTP workflows | Persisted agents, jobs, usage, audit events, account records and media metadata verified locally. |
 | Astra delegation | HTTP creation, claim and completion; structured-output worker fixture tests | Exact `gpt-6-astra` selection verified; no paid model invocation. |
 | Per-agent controls | HTTP ancestor-pause check; SQL agent/global concurrency tests | Pauses and subsequent-claim configuration verified. No mid-call steering. |
 | Queue reliability | Atomic-claim SQL tests, competing HTTP callbacks, duplicate completion and stale lease checks | Single winning callback; losing callbacks cannot append children. Budget reservations and daily-ledger checks passed. |
@@ -15,7 +15,7 @@ Development verification performed September 11–12, 2026. This file records th
 | YouTube API path | Fixture tests for OAuth channel check, private metadata, session upload and receipt | No live upload performed. Provider end-to-end validation is credential-gated. |
 | Other platforms | Explicit registry/manual-handoff UI and official requirements document | Direct adapters not implemented. |
 | 10,000 account registry | SQLite test inserted 10,000 authorized-account fixture records and paginated | Storage/query smoke test only, not sustained live platform operations. |
-| Million-model scale | Architecture and capacity estimate | Not implemented, load-tested or provisioned. Current global task cap is 32. |
+| Million-definition registry | Disposable SQLite fixture with one million lightweight configurations; six indexed page queries | Configuration storage/query evidence only. Million-model execution is not implemented, load-tested or provisioned. Global task cap remains 32. |
 | 24/7 runtime | Python loop, Docker/Compose source and persistent receipt journal | Worker unit tests passed. Docker/always-on hosting and valid production worker authentication remain unverified. The existing Sites gateway path was checked separately. |
 | Authentication | Anonymous rejection, cross-origin write rejection, worker scope, key revocation | Local authenticated API checks passed. Sites gateway is the production browser identity trust boundary. |
 
@@ -36,3 +36,13 @@ The additive migration preserves deployed tables and adds schedules plus nullabl
 
 
 Machine access was checked against the published portal using its existing Sites token, without rotation. The endpoint returned HTTP 401 with the application's JSON “Worker key is invalid or revoked” response to an intentionally invalid app key. This proves that the supported gateway path reaches the application and retains app-key enforcement; it does not prove successful worker authentication, live jobs or provider access. Worker tests cover portal-only header scope, malformed-token rejection, redacted header errors and HTTPS enforcement. Five loopback HTTP checks confirm that authenticated GET/POST requests do not follow 302/307 redirects or forward credentials to their destination.
+
+## Dynamic network release — September 12, 2026
+
+**73 unit/SQL/worker tests and 135 local HTTP checks passed**: 43 workflow/media checks, 41 recurring-schedule checks, 5 redirect checks and 46 new network checks. The base suite’s competing callback may produce one or two children; this run’s winner produced two and therefore one extra completion check. Four migrations were applied successfully to a new disposable local database; the deployed-core migration regression preserved existing model/instruction settings and backfilled roles, depths and counters.
+
+New evidence covers owner and worker scope, creation replay, transactional counters/audit rollback, capacity rejection, optimistic edits, route/retirement and child/retirement serialized orderings, account→studio→built-in precedence, paused targets, completion nonce fencing, unresolved-work protection, nested restoration, eight-level depth limit, Unicode prefix cursors, child/search pagination, authorized studio-filtered account selection and bounded regular workspace responses. A custom configured writer received and completed an actual locally leased task using a fixture response. No paid model request occurred.
+
+The reproducible local benchmark populated **1,000,000 lightweight agent definitions** in SQLite 3.51.0. Six actual page queries (first, late unique, late repeated-name, narrow final, missing prefix and late child) used the expected indexes. Returned result sets were 0–21 rows, with at most about 1,600 measured SQLite VM steps and 8,946 JSON bytes in these fixtures. The temporary database was approximately 338 MB and was removed after the run. Raw measurements, including environment-specific timings and query plans, are saved in `NETWORK_BENCHMARK.json`.
+
+These measurements are not a live D1 load test, million-job test, concurrency benchmark, deployment SLA or million-model runtime. Existing provider credentials, OAuth, host, real publication and browser interaction QA limitations remain. Source compilation and the production build passed for this release; live provider activation remains separate.

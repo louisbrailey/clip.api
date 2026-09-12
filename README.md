@@ -6,7 +6,7 @@ This is a functioning first release with production-oriented queue safeguards. *
 
 ## What runs
 
-- React/Vinext control room with a rotatable 3D projection and a flat tree; 13 configured agents across Originals, Gaming, Sports and Ambient studios.
+- React/Vinext control room with a rotatable 3D projection and a flat tree; 13 built-in agents across Originals, Gaming, Sports and Ambient studios, plus custom agent configurations with paginated branch navigation and name-prefix search.
 - GPT-6 Astra (`gpt-6-astra`) as the fixed head orchestrator. Studio models can be changed to models available to your OpenAI API account. No automatic model substitution.
 - Durable D1 queue with atomic claims, leases, attempt limits, parent dependencies, cancellation, inherited pauses, per-agent concurrency, global concurrency and token reservations.
 - Account-specific recurring production schedules, with pause/resume, run limits, occurrence history, retry-safe creation, missed-interval coalescing and no overlapping unresolved runs.
@@ -38,6 +38,16 @@ Register an authorized account, open **Schedules**, and choose **New schedule**.
 The shortest interval is one hour. Blank run limit repeats until paused; a numeric limit counts occurrences created, including failed or discarded runs. Missed intervals coalesce into one catch-up occurrence, maintaining the original elapsed-time cadence. A daily interval can shift local clock time across daylight-saving changes.
 
 Schedule/account/studio/workspace pauses hold future generation and waiting tasks. In-flight calls may finish. Failed or blocked descendants hold the next occurrence for review: retry the task, or use **Discard waiting run** after calls finish. That control cancels waiting tasks for the displayed occurrence and leaves future recurrence enabled. Schedule edits affect future occurrences; existing jobs retain their brief, account and occurrence. **View runs** filters the queue to that schedule. Publication approval remains separate.
+
+## Grow and control the network
+
+Open a studio branch in **Agent network**, select a parent, and choose **Add child agent**. Set its model, production role, instructions and concurrent task limit. The parent, studio and role remain fixed; models and instructions can be edited later. Astra remains the fixed root. Configuration depth is limited to eight levels below Astra.
+
+Choose **Assign production work** to route a studio’s lead/writer/editor role, or override that role for one authorized account. Account overrides take precedence over studio defaults; unassigned roles use the built-in agent. Assignments are resolved when Astra completes its plan. Existing tasks keep their saved agent. A paused assigned agent holds queued work; the system does not silently switch it to a different model.
+
+**Inspect routing assignments** shows the selected agent’s studio/account references and lets you reset them. **View tasks** opens that agent’s work. Retire a custom agent only after clearing its assignments, retiring its active child configurations and resolving its unfinished tasks. Retirement preserves history. Restoration requires enabled ancestors and keeps the restored agent paused. Built-in agents cannot be retired. Edits require the current revision; refresh after a conflicting edit.
+
+The registry allows up to one million configurations, including retired records. The graph loads one focus, its ancestors and up to twelve direct children; search and assignment lists show twenty results per page. This is configuration capacity, not a promise of simultaneous model execution. A disposable SQLite test populated one million lightweight definitions and checked indexed page queries. It did not test a million active models, live D1 service limits or 24/7 throughput. Global execution remains capped at 32 tasks.
 
 ## Worker setup
 
@@ -95,9 +105,10 @@ After generating `outputs/ambient-pink-noise.mp4` with a 10-second render and st
 python3 tests/integration.py
 python3 tests/integration_schedules.py
 python3 tests/integration_machine.py
+python3 tests/integration_network.py
 ```
 
-The integration test is hardcoded to loopback. It creates test records, rotates and revokes the local test identity's worker key, and exercises simulated publication receipts. Never adapt it to a production account. Reset only disposable local test state if rerunning. The release passes 62 worker/queue/recurrence tests, 42 existing HTTP checks, 41 recurrence HTTP checks and 5 local redirect checks; see [verification evidence](docs/VERIFICATION.md). A disposable state directory can be passed to `node scripts/migrate-local.mjs /absolute/disposable/path` and selected when starting development with `CONSTELLATION_LOCAL_STATE=/absolute/disposable/path npm run dev`. Use a new directory for each full integration run.
+The integration test is hardcoded to loopback. It creates test records, rotates and revokes the local test identity's worker key, and exercises simulated publication receipts. Never adapt it to a production account. Reset only disposable local test state if rerunning. The network release passes 73 worker/SQL tests and 135 local HTTP checks (43 workflow/media, 41 recurrence, 5 redirects and 46 network controls); see [verification evidence](docs/VERIFICATION.md). A disposable state directory can be passed to `node scripts/migrate-local.mjs /absolute/disposable/path` and selected when starting development with `CONSTELLATION_LOCAL_STATE=/absolute/disposable/path npm run dev`. Use a new directory for each full integration run.
 
 ## Operating boundaries
 
@@ -109,3 +120,5 @@ The integration test is hardcoded to loopback. It creates test records, rotates 
 - No platform API call, paid model call, or live social publication was made during validation.
 
 Read [architecture](docs/ARCHITECTURE.md), [platform requirements](docs/PLATFORMS.md), [operations](docs/OPERATIONS.md), and [release verification](docs/VERIFICATION.md).
+
+To reproduce the local registry benchmark, run `python3 tests/benchmark_network.py --rows 1000000 --output /private/tmp/constellation-registry-results.json`. It creates and removes a disposable SQLite fixture (approximately 338 MB for the supplied small definitions), checks index seeking on six page scenarios, and makes no model or platform requests. Timings describe one local run and are not a hosting performance guarantee.

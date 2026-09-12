@@ -22,10 +22,13 @@ export async function initialize(owner: string) {
   ).first();
   if (existing) return;
   await db().batch([
-    sql("INSERT OR IGNORE INTO settings(owner) VALUES(?)", owner),
+    sql(
+      "INSERT OR IGNORE INTO settings(owner,agent_total) VALUES(?,13)",
+      owner,
+    ),
     ...initialAgents.map((a) =>
       sql(
-        "INSERT OR IGNORE INTO agents(owner,id,parent,name,role,lane,model,paused,concurrency,instructions,color) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+        "INSERT OR IGNORE INTO agents(owner,id,parent,name,role,lane,model,paused,concurrency,instructions,color,task_role,core,depth,revision,child_count,search_name) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,1,?,1,?,?)",
         owner,
         a.id,
         a.parent,
@@ -37,6 +40,10 @@ export async function initialize(owner: string) {
         a.concurrency,
         a.instructions,
         a.color,
+        a.task_role,
+        a.depth,
+        a.child_count,
+        a.name.toLowerCase(),
       ),
     ),
   ]);
@@ -63,10 +70,11 @@ export async function state(
   search = "",
 ): Promise<State> {
   const r = await db().batch<Record<string, unknown>>([
-    sql("SELECT * FROM agents WHERE owner=? ORDER BY rowid", owner),
+    sql("SELECT * FROM agents WHERE owner=? AND core=1 ORDER BY rowid", owner),
     sql(
-      "SELECT * FROM jobs WHERE owner=? AND (instr(lower(title),lower(?))>0 OR instr(id,?)>0 OR instr(COALESCE(schedule_id,''),?)>0) ORDER BY created DESC, id DESC LIMIT 60 OFFSET ?",
+      "SELECT * FROM jobs WHERE owner=? AND (instr(lower(title),lower(?))>0 OR instr(id,?)>0 OR instr(COALESCE(schedule_id,''),?)>0 OR agent=?) ORDER BY created DESC, id DESC LIMIT 60 OFFSET ?",
       owner,
+      search,
       search,
       search,
       search,
@@ -90,7 +98,7 @@ export async function state(
       owner,
     ),
     sql(
-      "SELECT paused,concurrency,daily_tokens,worker_seen,worker_hash IS NOT NULL AS has_worker_key FROM settings WHERE owner=?",
+      "SELECT agent_total,paused,concurrency,daily_tokens,worker_seen,worker_hash IS NOT NULL AS has_worker_key FROM settings WHERE owner=?",
       owner,
     ),
     sql(
@@ -106,7 +114,7 @@ export async function state(
     sql("SELECT COUNT(*) AS n FROM accounts WHERE owner=?", owner),
     sql("SELECT COUNT(*) AS n FROM assets WHERE owner=?", owner),
     sql(
-      "SELECT agent,status,COUNT(*) AS n FROM jobs WHERE owner=? GROUP BY agent,status",
+      "SELECT agent,status,COUNT(*) AS n FROM jobs WHERE owner=? AND agent IN (SELECT id FROM agents WHERE agents.owner=jobs.owner AND core=1) GROUP BY agent,status",
       owner,
     ),
     sql(
@@ -163,6 +171,7 @@ export async function state(
     schedules: r[12].results,
     schedule_total: r[13].results[0].n,
     agents: r[0].results,
+    agent_total: r[5].results[0].agent_total,
     jobs: visibleJobs,
     accounts: r[2].results,
     assets: visibleAssets,
@@ -259,7 +268,7 @@ export async function claim(owner: string, mode: string, token: string) {
       AND (j.schedule_id IS NULL OR EXISTS(SELECT 1 FROM schedules r WHERE r.owner=j.owner AND r.id=j.schedule_id AND r.paused=0))
       AND EXISTS(SELECT 1 FROM agents studio WHERE studio.owner=j.owner AND studio.id=j.lane AND studio.paused=0)
       AND (j.depends IS NULL OR EXISTS(SELECT 1 FROM jobs d WHERE d.owner=j.owner AND d.id=j.depends AND d.status='succeeded'))
-      AND NOT EXISTS (WITH RECURSIVE tree AS (SELECT id,parent,paused,concurrency FROM agents WHERE owner=j.owner AND id=j.agent UNION ALL SELECT p.id,p.parent,p.paused,p.concurrency FROM agents p JOIN tree t ON p.id=t.parent WHERE p.owner=j.owner) SELECT 1 FROM tree WHERE paused=1)
+      AND NOT EXISTS (WITH RECURSIVE tree AS (SELECT id,parent,paused,concurrency,archived FROM agents WHERE owner=j.owner AND id=j.agent UNION ALL SELECT p.id,p.parent,p.paused,p.concurrency,p.archived FROM agents p JOIN tree t ON p.id=t.parent WHERE p.owner=j.owner) SELECT 1 FROM tree WHERE paused=1 OR archived=1)
       AND (SELECT COUNT(*) FROM jobs r WHERE r.owner=j.owner AND r.status='running') < s.concurrency
       AND (SELECT COUNT(*) FROM jobs r WHERE r.owner=j.owner AND r.status='running' AND r.agent=j.agent) < a.concurrency
       AND (j.mode='rehearsal' OR j.kind='publish' OR (SELECT COALESCE(SUM(tokens),0) FROM usage b WHERE b.owner=j.owner AND b.day=?)+(SELECT COALESCE(SUM(reserve),0) FROM jobs b WHERE b.owner=j.owner)+20000 <= s.daily_tokens)

@@ -63,9 +63,9 @@ try:
     check(claim(key)[1]['job'] is None and schedule(sid)['generated_count']==0,'account pause holds recurring generation')
     action('account-pause',id=accounts[0],paused=False)
     studio=next(a for a in state()['agents'] if a['id']=='ambient')
-    action('agent',**dict(studio,paused=True))
+    action('agent',**dict(next(a for a in state()['agents'] if a['id']=='ambient'),paused=True))
     check(claim(key)[1]['job'] is None,'studio pause holds Astra account plans')
-    action('agent',**dict(studio,paused=False))
+    action('agent',**dict(next(a for a in state()['agents'] if a['id']=='ambient'),paused=False))
     with concurrent.futures.ThreadPoolExecutor(2) as pool:claims=list(pool.map(lambda _:claim(key),range(2)))
     claimed=[result['job'] for code,result in claims if code==200 and result['job']]
     check(len(claimed)==1,'competing worker polls dispatch one occurrence')

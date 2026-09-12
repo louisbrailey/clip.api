@@ -127,13 +127,13 @@ class ScheduleTests(unittest.TestCase):
         self.schedule();id=self.expand()
         self.db.execute("UPDATE jobs SET status='succeeded',completion_nonce='winner'")
         for i in range(2):
-            self.db.execute(CHILD,(f'child-{i}','alice',id,None,'ambient-writer','Original script','Original content','ambient','live','draft','queued',self.now,self.now,'alice-account','recurring',self.now,'alice',id,'winner'))
+            self.db.execute(CHILD,(f'child-{i}','alice',id,None,'alice','account:alice-account','writer','alice','studio:ambient','writer','ambient-writer','Original script','Original content','ambient','live','draft','queued',self.now,self.now,'alice-account','recurring',self.now,'alice',id,'winner'))
         rows=self.db.execute("SELECT * FROM jobs WHERE parent=?",(id,)).fetchall()
         self.assertEqual(len(rows),2);self.assertTrue(all(r['account']=='alice-account' and r['schedule_id']=='recurring' and r['occurrence']==self.now and r['approved']==0 for r in rows))
         self.db.execute("UPDATE schedules SET paused=1");self.assertIsNone(self.claim())
     def test_losing_completion_cannot_create_children(self):
         self.schedule();id=self.expand();self.db.execute("UPDATE jobs SET status='succeeded',completion_nonce='winner'")
-        self.db.execute(CHILD,('child','alice',id,None,'ambient-writer','Original script','Original content','ambient','live','draft','queued',self.now,self.now,'alice-account','recurring',self.now,'alice',id,'loser'))
+        self.db.execute(CHILD,('child','alice',id,None,'alice','account:alice-account','writer','alice','studio:ambient','writer','ambient-writer','Original script','Original content','ambient','live','draft','queued',self.now,self.now,'alice-account','recurring',self.now,'alice',id,'loser'))
         self.assertEqual(self.db.execute("SELECT COUNT(*) FROM jobs WHERE parent IS NOT NULL").fetchone()[0],0)
     def test_edit_only_changes_future_snapshot(self):
         self.schedule();self.expand();self.db.execute("UPDATE schedules SET brief='A revised original production brief',mode='rehearsal'")

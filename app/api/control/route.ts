@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { updateAgent } from "../../../lib/network";
 import { identity, ApiError, failure, response, hash } from "../../../lib/auth";
 import {
   state,
@@ -14,6 +15,7 @@ import {
   workflowInput,
   scheduleInput,
   agentInput,
+  lanes,
   accountInput,
   planInput,
   rightsValid,
@@ -35,23 +37,32 @@ export async function GET(request: Request) {
       .parse(url.searchParams.get("offset") || 0);
     if (url.searchParams.get("picker") === "accounts") {
       const q = (url.searchParams.get("q") || "").slice(0, 120);
-      const purpose =
-        url.searchParams.get("purpose") === "production"
-          ? "production"
-          : "publish";
+      const purpose = ["production", "routing"].includes(
+        url.searchParams.get("purpose") || "",
+      )
+        ? url.searchParams.get("purpose")!
+        : "publish";
+      const lane = url.searchParams.get("lane") || "";
+      if (lane) z.enum(lanes).parse(lane);
       const r = await db().batch([
         sql(
-          "SELECT id,handle,external_id,platform FROM accounts WHERE owner=? AND (?='production' OR platform='youtube') AND authorized=1 AND paused=0 AND (instr(lower(handle),lower(?))>0 OR instr(external_id,?)>0) ORDER BY created DESC,id LIMIT 60 OFFSET ?",
+          "SELECT id,handle,external_id,platform FROM accounts WHERE owner=? AND (?!='publish' OR platform='youtube') AND authorized=1 AND (paused=0 OR ?='routing') AND (?='' OR lane=?) AND (instr(lower(handle),lower(?))>0 OR instr(external_id,?)>0) ORDER BY created DESC,id LIMIT 60 OFFSET ?",
           owner,
           purpose,
+          purpose,
+          lane,
+          lane,
           q,
           q,
           offset,
         ),
         sql(
-          "SELECT COUNT(*) AS n FROM accounts WHERE owner=? AND (?='production' OR platform='youtube') AND authorized=1 AND paused=0 AND (instr(lower(handle),lower(?))>0 OR instr(external_id,?)>0)",
+          "SELECT COUNT(*) AS n FROM accounts WHERE owner=? AND (?!='publish' OR platform='youtube') AND authorized=1 AND (paused=0 OR ?='routing') AND (?='' OR lane=?) AND (instr(lower(handle),lower(?))>0 OR instr(external_id,?)>0)",
           owner,
           purpose,
+          purpose,
+          lane,
+          lane,
           q,
           q,
         ),
@@ -131,11 +142,17 @@ async function complete(owner: string, body: Record<string, unknown>) {
         agent = t.role === "lead" ? j.lane : `${j.lane}-${t.role}`;
       statements.push(
         sql(
-          "INSERT OR IGNORE INTO jobs(id,owner,parent,depends,agent,title,brief,lane,mode,kind,status,created,scheduled,account,schedule_id,occurrence) SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM jobs WHERE owner=? AND id=? AND status='succeeded' AND completion_nonce=?)",
+          "INSERT OR IGNORE INTO jobs(id,owner,parent,depends,agent,title,brief,lane,mode,kind,status,created,scheduled,account,schedule_id,occurrence) SELECT ?,?,?,?,COALESCE((SELECT agent FROM agent_routes WHERE owner=? AND scope=? AND role=?),(SELECT agent FROM agent_routes WHERE owner=? AND scope=? AND role=?),?),?,?,?,?,?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM jobs WHERE owner=? AND id=? AND status='succeeded' AND completion_nonce=?)",
           id,
           owner,
           j.id,
           previous,
+          owner,
+          j.account ? `account:${j.account}` : "none",
+          t.role,
+          owner,
+          `studio:${j.lane}`,
+          t.role,
           agent,
           t.title,
           t.brief,
@@ -250,7 +267,7 @@ export async function POST(request: Request) {
     if (action === "complete") return await complete(owner, body);
     if (action === "preflight") {
       const j = await sql(
-        "SELECT j.id FROM jobs j JOIN settings s ON s.owner=j.owner JOIN accounts a ON a.id=j.account AND a.owner=j.owner JOIN assets m ON m.id=j.asset AND m.owner=j.owner WHERE j.owner=? AND j.id=? AND j.lease=? AND j.status='running' AND j.lease_until>? AND j.approved=1 AND s.paused=0 AND a.paused=0 AND a.authorized=1 AND (m.expires IS NULL OR m.expires>?) AND NOT EXISTS(WITH RECURSIVE tree AS (SELECT id,parent,paused FROM agents WHERE owner=j.owner AND id=j.agent UNION ALL SELECT p.id,p.parent,p.paused FROM agents p JOIN tree t ON p.id=t.parent WHERE p.owner=j.owner) SELECT 1 FROM tree WHERE paused=1)",
+        "SELECT j.id FROM jobs j JOIN settings s ON s.owner=j.owner JOIN accounts a ON a.id=j.account AND a.owner=j.owner JOIN assets m ON m.id=j.asset AND m.owner=j.owner WHERE j.owner=? AND j.id=? AND j.lease=? AND j.status='running' AND j.lease_until>? AND j.approved=1 AND s.paused=0 AND a.paused=0 AND a.authorized=1 AND (m.expires IS NULL OR m.expires>?) AND NOT EXISTS(WITH RECURSIVE tree AS (SELECT id,parent,paused,archived FROM agents WHERE owner=j.owner AND id=j.agent UNION ALL SELECT p.id,p.parent,p.paused,p.archived FROM agents p JOIN tree t ON p.id=t.parent WHERE p.owner=j.owner) SELECT 1 FROM tree WHERE paused=1 OR archived=1)",
         owner,
         String(body.id),
         String(body.lease),
@@ -400,24 +417,7 @@ export async function POST(request: Request) {
       return response({ ok: true });
     }
     if (action === "agent") {
-      const v = agentInput.parse(body);
-      if (v.id === "astra" && v.model !== "gpt-6-astra")
-        throw new ApiError(
-          "The head orchestrator is configured as gpt-6-astra",
-        );
-      const r = await db().batch([
-        sql(
-          "UPDATE agents SET paused=?,concurrency=?,model=?,instructions=? WHERE owner=? AND id=?",
-          +v.paused,
-          v.concurrency,
-          v.model,
-          v.instructions,
-          owner,
-          v.id,
-        ),
-        event(owner, "control", `Updated ${v.id} configuration`),
-      ]);
-      if (!r[0].meta.changes) throw new ApiError("Agent not found", 404);
+      await updateAgent(owner, agentInput.parse(body));
       return response({ ok: true });
     }
     if (action === "settings") {

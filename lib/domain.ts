@@ -60,6 +60,12 @@ export type Agent = {
   concurrency: number;
   instructions: string;
   color: string;
+  task_role: string;
+  core: number;
+  archived: number;
+  depth: number;
+  revision: number;
+  child_count: number;
 };
 const tracks = [
   ["originals", "Original studio", "Original scripts & concepts", "#b7ef67"],
@@ -67,7 +73,7 @@ const tracks = [
   ["sports", "Sports desk", "Licensed edits & commentary", "#ffb977"],
   ["ambient", "Ambient studio", "Original sound & meditation", "#9edbcb"],
 ];
-export const initialAgents: Agent[] = [
+const seedAgents = [
   {
     id: "astra",
     parent: null,
@@ -122,6 +128,34 @@ export const initialAgents: Agent[] = [
     },
   ]),
 ];
+export const initialAgents: Agent[] = seedAgents.map((a) => ({
+  ...a,
+  task_role:
+    a.id === "astra"
+      ? "orchestrator"
+      : a.parent === "astra"
+        ? "lead"
+        : a.id.endsWith("writer")
+          ? "writer"
+          : "editor",
+  core: 1,
+  archived: 0,
+  depth: a.id === "astra" ? 0 : a.parent === "astra" ? 1 : 2,
+  revision: 1,
+  child_count: a.id === "astra" ? 4 : a.parent === "astra" ? 2 : 0,
+}));
+export type NetworkAgent = Agent & {
+  running: number;
+  queued: number;
+  route_count: number;
+};
+export type NetworkBranch = {
+  focus: NetworkAgent;
+  ancestors: Agent[];
+  children: NetworkAgent[];
+  next: string | null;
+  total: number;
+};
 export type Job = {
   id: string;
   parent: string | null;
@@ -213,6 +247,7 @@ export type State = {
   agent_counts: Record<string, Record<string, number>>;
   lane_counts: Record<string, Record<string, number>>;
   agents: Agent[];
+  agent_total: number;
   jobs: Job[];
   accounts: Account[];
   assets: Asset[];
@@ -266,6 +301,7 @@ export const accountInput = z.object({
   daily_limit: z.number().int().min(1).max(100).default(1),
 });
 export const agentInput = z.object({
+  revision: z.number().int().positive(),
   id: z.string(),
   paused: z.boolean(),
   concurrency: z.number().int().min(1).max(16),
