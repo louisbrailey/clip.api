@@ -199,7 +199,7 @@ export function newJob(
   },
 ) {
   return sql(
-    "INSERT INTO jobs(id,owner,parent,depends,agent,title,brief,lane,mode,kind,status,created,scheduled,account,asset,approved) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+    "INSERT INTO jobs(id,owner,parent,depends,agent,title,brief,lane,mode,kind,status,created,scheduled,account,asset,approved,made_with_ai) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
     j.id,
     owner,
     j.parent ?? null,
@@ -216,6 +216,7 @@ export function newJob(
     j.account ?? null,
     j.asset ?? null,
     j.approved ?? 0,
+    j.made_with_ai ?? 0,
   );
 }
 export async function sweep(owner: string) {

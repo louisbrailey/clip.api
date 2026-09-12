@@ -32,8 +32,8 @@ export const platformInfo: Record<
   },
   x: {
     name: "X",
-    support: "Manual handoff",
-    note: "Distinct, authorized accounts only. Automated amplification is prohibited. Direct publishing adapter is not included in this release.",
+    support: "Worker adapter",
+    note: "Reviewed video posts use the account’s existing audience and may be public. User OAuth, media.write permission and API access are required. Live provider validation is pending.",
     url: "https://help.x.com/en/rules-and-policies/authenticity",
   },
   tiktok: {
@@ -180,6 +180,7 @@ export type Job = {
   asset: string | null;
   receipt: string;
   approved: number;
+  made_with_ai: number;
   schedule_id: string | null;
   occurrence: number | null;
 };

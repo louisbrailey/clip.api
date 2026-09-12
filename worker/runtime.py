@@ -5,6 +5,8 @@ Provider credentials are read only from environment variables on this machine.
 """
 from __future__ import annotations
 import argparse
+import base64
+import hashlib
 import concurrent.futures
 import json
 import os
@@ -25,6 +27,11 @@ POLICY = """You are a creative production worker for authorized social accounts.
 class RuntimeFailure(Exception):
     """An intentionally redacted, user-readable error."""
 
+class ProviderHTTPFailure(RuntimeFailure):
+    def __init__(self, status):
+        self.status = status
+        super().__init__(f"Provider returned HTTP {status}; check access, quota and configuration")
+
 class UncertainUpload(RuntimeFailure):
     pass
 
@@ -44,7 +51,7 @@ def http(url: str, *, method="GET", body=None, headers=None, timeout=90):
             return content, dict(r.headers), r.status
     except urllib.error.HTTPError as e:
         # Never expose URLs, auth headers or provider response bodies in logs/UI.
-        raise RuntimeFailure(f"Provider returned HTTP {e.code}; check access, quota and configuration") from None
+        raise ProviderHTTPFailure(e.code) from None
     except ValueError:
         # http.client includes raw header values in malformed-header errors.
         raise RuntimeFailure("Invalid request configuration; check endpoint and credentials") from None
@@ -184,16 +191,252 @@ def publish_youtube(context, portal, lease_valid, journal):
     except Exception:
         raise UncertainUpload("YouTube upload outcome is uncertain. Check YouTube Studio before taking further action.") from None
 
+# X uses OAuth2 user authorization. Keep rotating credentials out of task journals.
+def atomic_json(path, value):
+    path = Path(path)
+    temp = path.with_name(path.name + '.' + uuid.uuid4().hex + '.tmp')
+    try:
+        fd = os.open(temp, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        with os.fdopen(fd, 'w') as stream:
+            json.dump(value, stream); stream.flush(); os.fsync(stream.fileno())
+        os.replace(temp, path)
+        directory = os.open(path.parent, os.O_RDONLY)
+        try: os.fsync(directory)
+        finally: os.close(directory)
+    except OSError:
+        raise RuntimeFailure('Could not persist worker state; check the private state volume') from None
+    finally:
+        try: temp.unlink(missing_ok=True)
+        except OSError: pass
+
+class XCredentialStore:
+    """One durable token cache per credential reference; Linux/macOS file locks.
+
+    An interrupted rotating-token refresh requires a new user authorization.
+    Never replay an ambiguous refresh request against a possibly consumed token.
+    """
+    def __init__(self, directory):
+        self.directory = Path(directory)
+        self.directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+
+    def token(self, account):
+        ref = account.get('credential_ref', '')
+        if not re.fullmatch(r'[A-Z][A-Z0-9_]{2,79}', ref):
+            raise RuntimeFailure('Invalid X credential reference')
+        try: config = json.loads(os.environ.get(ref, '{}'))
+        except ValueError: raise RuntimeFailure('X credential configuration is not valid JSON') from None
+        if not isinstance(config, dict) or any(not isinstance(config.get(k), str) or not 1 <= len(config[k]) <= 10000 for k in ('client_id', 'refresh_token')):
+            raise RuntimeFailure('X OAuth client ID and refresh token are missing on this worker')
+        secret = config.get('client_secret', '')
+        if not isinstance(secret, str) or len(secret) > 10000:
+            raise RuntimeFailure('Invalid X OAuth client configuration')
+        # A newly consented refresh token deliberately replaces quarantined state.
+        seed = hashlib.sha256(json.dumps([config['client_id'], config['refresh_token']]).encode()).hexdigest()
+        path = self.directory / (ref + '.json')
+        try:
+            import fcntl
+            lock = os.open(self.directory / (ref + '.lock'), os.O_CREAT | os.O_RDWR | getattr(os, 'O_NOFOLLOW', 0), 0o600)
+        except (ImportError, OSError):
+            raise RuntimeFailure('X token storage requires a private writable Linux/macOS state volume') from None
+        with os.fdopen(lock, 'w') as stream:
+            lock_deadline = time.monotonic() + 30
+            while True:
+                try:
+                    fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB); break
+                except BlockingIOError:
+                    if time.monotonic() >= lock_deadline:
+                        raise RuntimeFailure('X token refresh is busy; review the running worker before retrying') from None
+                    time.sleep(0.05)
+            state = {}
+            if path.exists():
+                try:
+                    if path.is_symlink() or path.stat().st_mode & 0o077: raise ValueError()
+                    state = json.loads(path.read_text())
+                    if not isinstance(state, dict): raise ValueError()
+                except (ValueError, OSError):
+                    raise RuntimeFailure('X credential state is unreadable or not private; restore it securely') from None
+            if state.get('seed') != seed:
+                state = {'seed': seed, 'refresh_token': config['refresh_token'], 'phase': 'ready'}
+            if state.get('phase') == 'refresh-starting':
+                raise RuntimeFailure('X token refresh was interrupted; reconnect this account with a new OAuth grant')
+            access = state.get('access_token', '')
+            expires = state.get('expires_at', 0)
+            if isinstance(expires, (int, float)) and expires > time.time() + 120 and isinstance(access, str) and re.fullmatch(r'[!-~]{1,4096}', access):
+                return access
+            refresh = state.get('refresh_token')
+            if not isinstance(refresh, str) or not refresh:
+                raise RuntimeFailure('X refresh token is unavailable; reconnect this account')
+            form = {'grant_type': 'refresh_token', 'refresh_token': refresh}
+            headers = {'Content-Type': 'application/x-www-form-urlencoded'}
+            if secret:
+                basic = base64.b64encode((config['client_id'] + ':' + secret).encode()).decode()
+                headers['Authorization'] = 'Basic ' + basic
+            else:
+                form['client_id'] = config['client_id']
+            state['phase'] = 'refresh-starting'
+            atomic_json(path, state)
+            # Any failure leaves the durable quarantine marker. No provider work follows.
+            result, _, _ = json_http('https://api.x.com/2/oauth2/token', method='POST', body=urllib.parse.urlencode(form).encode(), headers=headers, timeout=30)
+            access = result.get('access_token') if isinstance(result, dict) else None
+            duration = result.get('expires_in') if isinstance(result, dict) else None
+            rotated = result.get('refresh_token', refresh) if isinstance(result, dict) else None
+            if not isinstance(access, str) or not re.fullmatch(r'[!-~]{1,4096}', access) or type(duration) is not int or not 180 <= duration <= 2678400 or not isinstance(rotated, str) or not 1 <= len(rotated) <= 10000:
+                raise RuntimeFailure('X token refresh returned invalid credentials; reconnect this account')
+            atomic_json(path, {'seed': seed, 'phase': 'ready', 'refresh_token': rotated, 'access_token': access, 'expires_at': time.time() + duration})
+            return access
+
+def x_data(result):
+    if not isinstance(result, dict) or result.get('errors') or not isinstance(result.get('data'), dict):
+        raise RuntimeFailure('X media response was invalid; review account access and media requirements')
+    return result['data']
+
+def x_media_id(value):
+    if not isinstance(value, str) or not re.fullmatch(r'[0-9]{1,19}', value):
+        raise RuntimeFailure('X returned an invalid media identifier')
+    return value
+
+def publish_x(context, portal, lease_valid, journal):
+    j, account = context['job'], context.get('account')
+    if not account or account.get('platform') != 'x' or account.get('authorized') != 1 or j.get('approved') != 1 or j.get('kind') != 'publish':
+        raise RuntimeFailure('X publication requires an approved task and authorized account')
+    external = account.get('external_id', '')
+    if not isinstance(external, str) or not re.fullmatch(r'[0-9]{1,19}', external):
+        raise RuntimeFailure('Register the numeric X user ID, not a handle, for account verification')
+    text = j.get('brief')
+    if not isinstance(text, str) or not text.strip() or len(text) > 4500:
+        raise RuntimeFailure('X post text is missing or oversized')
+    try: previous = journal.read(j['id'])
+    except RuntimeFailure:
+        raise UncertainUpload('X publication journal is unreadable. Check the account before further action.') from None
+    saved = previous.get('completion', previous)
+    if not isinstance(saved, dict): raise UncertainUpload('Task journal needs review before X publishing')
+    receipt = saved.get('receipt', '')
+    if previous.get('phase') == 'post-starting' or saved.get('status') == 'uncertain':
+        if isinstance(receipt, str) and re.fullmatch(r'https://x\.com/i/web/status/[0-9]{1,19}', receipt):
+            return {'status': 'uncertain', 'error': 'X publication needs review; verify the saved candidate receipt.', 'receipt': receipt, 'tokens': 0}
+        raise UncertainUpload('X publication was interrupted. Check the account before taking further action.')
+    if previous.get('phase') in ('provider-accepted','post-confirmation-needed') or saved.get('status') == 'succeeded':
+        if not isinstance(receipt, str) or not re.fullmatch(r'https://x\.com/i/web/status/[0-9]{1,19}', receipt):
+            raise UncertainUpload('Saved X publication receipt needs review; automatic resending is disabled')
+        if previous.get('phase') == 'post-confirmation-needed':
+            return {'status': 'uncertain', 'error': 'X returned a post ID with an unexpected response status; verify the receipt.', 'receipt': receipt, 'tokens': 0}
+        return {'status': 'succeeded', 'result': 'Existing X publication receipt recovered.', 'receipt': receipt, 'tokens': 0}
+    credentials = XCredentialStore(journal.path / 'credentials')
+    token = credentials.token(account)
+    headers = {'Authorization': 'Bearer ' + token}
+    user, _, _ = json_http('https://api.x.com/2/users/me', headers=headers)
+    if x_data(user).get('id') != external:
+        raise RuntimeFailure('OAuth token does not belong to the registered X account')
+    video = portal.media(j['asset'])
+    def valid():
+        if not lease_valid(): raise RuntimeFailure('Lease could not be renewed; X dispatch stopped')
+    valid(); portal.call('preflight', id=j['id'], lease=j['lease'])
+    initial, _, _ = json_http('https://api.x.com/2/media/upload/initialize', method='POST', body={'total_bytes': len(video), 'media_type': 'video/mp4', 'media_category': 'tweet_video'}, headers=headers)
+    data = x_data(initial); media_id = x_media_id(data.get('id'))
+    lifetime = data.get('expires_after_secs')
+    if type(lifetime) is not int or lifetime < 1:
+        raise RuntimeFailure('X upload session expiry is missing')
+    expiry = time.time() + lifetime
+    for index, start in enumerate(range(0, len(video), 4 * 1024 * 1024)):
+        valid()
+        if time.time() >= expiry: raise RuntimeFailure('X media expired before upload completed')
+        journal.write(j['id'], {'phase': 'media-upload', 'media_id': media_id, 'segment': index, 'at': time.time()})
+        part = base64.b64encode(video[start:start + 4 * 1024 * 1024]).decode()
+        appended, _, _ = json_http('https://api.x.com/2/media/upload/' + media_id + '/append', method='POST', body={'media': part, 'segment_index': index}, headers=headers)
+        segment = x_data(appended)
+        if 'expires_at' in segment:
+            if type(segment['expires_at']) is not int or segment['expires_at'] <= time.time():
+                raise RuntimeFailure('X media upload expired')
+            expiry = segment['expires_at']
+    valid()
+    final, _, _ = json_http('https://api.x.com/2/media/upload/' + media_id + '/finalize', method='POST', headers=headers)
+    data = x_data(final)
+    if data.get('id') is not None and x_media_id(data['id']) != media_id:
+        raise RuntimeFailure('X upload finalization changed the media identifier')
+    if 'expires_after_secs' in data:
+        if type(data['expires_after_secs']) is not int or data['expires_after_secs'] <= 0:
+            raise RuntimeFailure('X finalized media is expired')
+        expiry = time.time() + data['expires_after_secs']
+    deadline = time.monotonic() + 600
+    polled = False
+    for _ in range(120):
+        valid()
+        if time.time() >= expiry: raise RuntimeFailure('X media expired during processing')
+        info = data.get('processing_info')
+        if info is None and not polled or isinstance(info, dict) and info.get('state') == 'succeeded': break
+        if not isinstance(info, dict) or info.get('state') not in ('pending', 'in_progress'):
+            raise RuntimeFailure('X rejected video processing; review the media requirements')
+        delay = info.get('check_after_secs', 1)
+        if type(delay) is not int or not 1 <= delay <= 600 or time.monotonic() + delay > deadline:
+            raise RuntimeFailure('X media processing exceeded the bounded waiting window')
+        time.sleep(delay)
+        valid()
+        status, _, _ = json_http('https://api.x.com/2/media/upload?command=STATUS&media_id=' + media_id, headers=headers)
+        data = x_data(status); polled = True
+        if data.get('id') is not None and x_media_id(data['id']) != media_id:
+            raise RuntimeFailure('X processing status returned a different media identifier')
+    else:
+        raise RuntimeFailure('X media processing did not finish within the bounded polling limit')
+    valid()
+    if time.time() >= expiry: raise RuntimeFailure('X media expired before publishing')
+    # Refresh expired credentials before the final approval check and public side effect.
+    refreshed = credentials.token(account)
+    if refreshed != token:
+        headers['Authorization'] = 'Bearer ' + refreshed
+        user, _, _ = json_http('https://api.x.com/2/users/me', headers=headers)
+        if x_data(user).get('id') != external:
+            raise RuntimeFailure('Refreshed OAuth token does not belong to the registered X account')
+    valid()
+    # Approval is rechecked after processing, immediately before the public side effect.
+    portal.call('preflight', id=j['id'], lease=j['lease'])
+    valid()
+    if time.time() >= expiry: raise RuntimeFailure('X media expired before publication dispatch')
+    payload = {'text': text, 'media': {'media_ids': [media_id]}}
+    if j.get('made_with_ai') == 1: payload['made_with_ai'] = True
+    journal.write(j['id'], {'phase': 'post-starting', 'media_id': media_id, 'account': external, 'at': time.time()})
+    accepted = None
+    try:
+        result, _, status = json_http('https://api.x.com/2/tweets', method='POST', body=payload, headers=headers)
+        post = result.get('data', {}).get('id') if isinstance(result, dict) and isinstance(result.get('data'), dict) else None
+        if not isinstance(post, str) or not re.fullmatch(r'[0-9]{1,19}', post):
+            raise RuntimeFailure('X publication receipt was missing')
+        receipt = 'https://x.com/i/web/status/' + post
+        accepted = {'status': 'succeeded', 'result': 'Video posted to X using the account’s existing audience settings.', 'receipt': receipt, 'tokens': 0} if status == 201 else {'status': 'uncertain', 'error': 'X returned a post ID with an unexpected response status; verify the receipt.', 'receipt': receipt, 'tokens': 0}
+        journal.write(j['id'], {'phase': 'provider-accepted' if status == 201 else 'post-confirmation-needed', 'receipt': receipt, 'at': time.time()})
+        return accepted
+    except ProviderHTTPFailure as e:
+        if e.status in (400, 401, 402, 403, 404, 413, 415, 422, 429):
+            # A definite rejection has no post receipt. Operator review is still required.
+            journal.write(j['id'], {'phase': 'post-rejected', 'http_status': e.status, 'at': time.time()})
+            raise RuntimeFailure('X rejected publication (HTTP ' + str(e.status) + '); review caption, media, access and quota') from None
+        raise UncertainUpload('X publication outcome is uncertain. Check the account before taking further action.') from None
+    except Exception:
+        # The worker can still persist/report a valid receipt if the intermediate write failed.
+        if accepted is not None: return accepted
+        raise UncertainUpload('X publication outcome is uncertain. Check the account before taking further action.') from None
+
+def publish(context, portal, lease_valid, journal):
+    platform = (context.get('account') or {}).get('platform')
+    if platform == 'youtube': return publish_youtube(context, portal, lease_valid, journal)
+    if platform == 'x': return publish_x(context, portal, lease_valid, journal)
+    raise RuntimeFailure('This platform requires a manual publishing handoff')
+
+
 class Journal:
     def __init__(self, path):
         self.path = Path(path); self.path.mkdir(parents=True,exist_ok=True,mode=0o700)
     def write(self, job, value):
         if not re.fullmatch(r"[a-zA-Z0-9-]{1,100}", job): raise RuntimeFailure("Invalid journal task ID")
-        path=self.path/(job+".json"); temp=path.with_suffix(".tmp")
-        fd=os.open(temp,os.O_CREAT|os.O_TRUNC|os.O_WRONLY,0o600)
-        with os.fdopen(fd,"w") as stream:
-            json.dump(value,stream); stream.flush(); os.fsync(stream.fileno())
-        temp.replace(path)
+        atomic_json(self.path/(job+".json"), value)
+    def read(self, job):
+        if not re.fullmatch(r"[a-zA-Z0-9-]{1,100}", job): raise RuntimeFailure("Invalid journal task ID")
+        path=self.path/(job+".json")
+        try:
+            if not path.exists(): return {}
+            value=json.loads(path.read_text())
+            if not isinstance(value,dict): raise ValueError()
+            return value
+        except (ValueError,OSError): raise RuntimeFailure("Task journal is unreadable; review it before publishing") from None
     def pending(self):
         for file in self.path.glob("*.json"):
             try:
@@ -213,7 +456,7 @@ class Worker:
         try:
             # No mock path is accepted here. Rehearsals execute only in the portal.
             if j["mode"]!="live": raise RuntimeFailure("Live worker received a rehearsal task")
-            result=publish_youtube(context,self.portal,healthy.is_set,self.journal) if j["kind"]=="publish" else run_model(context)
+            result=publish(context,self.portal,healthy.is_set,self.journal) if j["kind"]=="publish" else run_model(context)
         except UncertainUpload as e: result={"status":"uncertain","error":str(e)}
         except RuntimeFailure as e: result={"status":"failed","error":str(e)}
         except Exception: result={"status":"uncertain" if j["kind"]=="publish" else "failed","error":"Worker execution failed; inspect redacted runtime logs"}

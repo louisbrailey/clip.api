@@ -14,7 +14,9 @@ flowchart TD
   Worker --> Specialists[Configured studio models]
   Worker --> Review[Approved immutable upload task]
   Review --> YouTube[Private YouTube upload]
-  YouTube --> Receipt[Durable provider receipt]
+  Review --> X[X video post to approved account audience]
+  X --> Receipt[Durable provider receipt]
+  YouTube --> Receipt
   Receipt --> Queue
 ```
 
@@ -34,15 +36,21 @@ Claims enforce owner scope, due time, dependencies, attempt cap, inherited pause
 
 R2 stores immutable per-upload objects under owner-scoped random keys. D1 stores name, size, rights basis, evidence and expiry. The API requires MP4 container bytes and a size under 50 MB. Container recognition is not full codec or malware validation; FFmpeg decoding is part of the local rendering workflow. Browser and worker downloads are authenticated, including byte-range playback.
 
-A publication approval names an exact source object, account, title, description and schedule. These fields have no editing endpoint after creation. A partial unique index prevents a second queued, running, uncertain or successful publication for the same asset in the workspace. Rights and pauses are rechecked at claim and immediately before the provider request. The YouTube worker validates the OAuth channel ID and always uploads privately. The operator verifies publication receipts in the platform.
+A publication approval names an exact source object, account, title, description, schedule and AI-label choice. The server requires the platform-specific approval scope: `youtube-private` or `x-account`. X captions are checked with the official weighted-text parser before a job exists. The X queue title is internal; only the exact approved brief becomes post text. These fields have no editing endpoint after creation. A partial unique index prevents a second queued, running, uncertain or successful publication for the same asset in the workspace. Rights and pauses are rechecked at claim and immediately before the provider request. The YouTube worker validates the OAuth channel ID and always uploads privately. The X worker verifies the numeric OAuth user identity, uploads video chunks, waits for processing within expiry limits and creates a post for the account’s audience, which may be public. Both adapters use fixed provider endpoints. The operator verifies publication receipts in the platform.
 
 ## Authentication and secrets
 
 Browser identity comes from dispatch-owned Sites sign-in. The production boundary must strip and replace all `oai-authenticated-user-*` headers. Never expose the unwrapped Vinext application on an untrusted standalone network: those headers are trusted only behind the authenticated Sites gateway. Local sign-in middleware strips spoofed headers and applies a development identity only to loopback requests.
 
-Worker keys contain 256 random bits; only SHA-256 hashes are stored. They are owner-scoped and limited to claiming, heartbeats, completion, preflight and media retrieval. Keys cannot mutate operator settings, register accounts or read the browser control room. Rotation and revocation are audited. Provider credentials remain in the worker's environment. The optional `deploy/machine-entry.mjs` wrapper rejects browser routes and strips browser identity headers for separately provisioned machine ingress. It does not provision that ingress or grant access to Sites-managed storage.
+Worker keys contain 256 random bits; only SHA-256 hashes are stored. They are owner-scoped and limited to claiming, heartbeats, completion, preflight and media retrieval. Keys cannot mutate operator settings, register accounts or read the browser control room. Rotation and revocation are audited. Initial provider grants remain in the worker’s environment. X access and rotated refresh tokens additionally reside in a private directory on the persistent worker volume; they never enter portal records, model context or completion journals. The optional `deploy/machine-entry.mjs` wrapper rejects browser routes and strips browser identity headers for separately provisioned machine ingress. It does not provision that ingress or grant access to Sites-managed storage.
 
 Browser writes require the same origin. Database statements are parameterized. Models have no shell, browser, engagement tools or arbitrary HTTP access. Provider requests use fixed HTTPS endpoints and reject redirects. Upload-session URLs must remain on the expected Google API host. Logs expose error categories rather than secrets or provider response bodies.
+
+## X publication recovery
+
+Each credential reference has a serialized, atomically persisted refresh state. A durable `refresh-starting` checkpoint precedes the non-retried token request; an ambiguous refresh is quarantined until a new initial grant is supplied. File and directory synchronization precede dependent provider work. This design uses local process file locks and does not claim multi-host coordination.
+
+The upload records preparation progress but never treats incomplete media as a created post. Immediately before the single create-post request, the worker persists `post-starting`. A canonical returned post receipt is preserved through intermediate journal write failures. A valid saved success can report completion without new provider traffic. Missing or malformed success receipts, ambiguous dispatch and uncertain saved outcomes cannot fall through into a second create-post request. The server’s existing publication lock and lease fencing also apply to X. No reply, quote, repost, follow, like or cross-account amplification endpoint is exposed.
 
 ## Capacity and remaining work
 

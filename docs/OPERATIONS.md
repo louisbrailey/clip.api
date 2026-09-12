@@ -24,6 +24,22 @@ A registered account's credential reference, such as `YOUTUBE_AMBIENT`, names a 
 
 Upload original or licensed MP4 media, record provenance and expiry, register the matching account, and approve an exact private upload. The worker rechecks lease validity, account pause, workspace pause and rights immediately before dispatch. Verify the first private upload and metadata in YouTube Studio. Only then consider a separately reviewed public-publishing extension; this release always uses private visibility.
 
+## Activate X video posts
+
+Use an X developer application and obtain a user OAuth 2.0 authorization-code grant with PKCE (`S256`), state verification, an exact registered redirect URI and scopes `tweet.read tweet.write users.read media.write offline.access`. OAuth onboarding is not built into this portal. The grant must authorize the intended account and the developer project must have the required API access and credits. [Official authorization flow](https://docs.x.com/fundamentals/authentication/oauth-2-0/authorization-code).
+
+Register the numeric X user ID, not a handle, in the account’s external ID field. A credential reference such as `X_AMBIENT` names a worker environment variable containing JSON with `client_id` and `refresh_token`; confidential applications also supply `client_secret`. Keep these values in worker secrets. The worker checks `/2/users/me` before uploading, and repeats the identity check if it obtains a different access token before post creation.
+
+The worker stores refreshed credentials under the persistent journal volume’s private `credentials/` directory. Files are mode 0600, the directory is 0700, and per-reference file locks serialize refreshes. The replacement refresh token is written durably before provider work continues. Use a local persistent filesystem supporting atomic rename, directory synchronization and process file locks; shared multi-host credential storage is not supported. Token files are secrets and must be protected in backups as well as the live volume.
+
+An interrupted or ambiguous refresh leaves the credential quarantined. Obtain a fresh user authorization grant and update the initial refresh token in the secret configuration to reset that state. Changing only the client secret retains the current stored refresh token. Do not delete or manually reset token state to retry an old refresh grant: the provider may already have invalidated it.
+
+Upload an original or licensed MP4, select the X account, review the exact caption and explicitly approve that account’s audience. This creates a real post according to the account’s settings and may be public. The queue title is internal, and the caption is validated using X’s official weighted-text parser. Select **Label this post as made with AI** when appropriate; the choice is saved with the immutable publication task. [Create-post fields](https://docs.x.com/x-api/posts/create-post), [character counting](https://docs.x.com/fundamentals/counting-characters).
+
+The worker initializes media, sends 4 MiB chunks as base64 JSON, finalizes, checks processing and expiry, then repeats portal preflight before creating the post. Validate the first live upload’s actual API responses, video playback, caption, account audience, AI label and receipt before enabling sustained work. Tests use provider fixtures, so platform-side acceptance, quota and live media processing remain unverified. [Initialize](https://docs.x.com/x-api/media/initialize-media-upload), [append](https://docs.x.com/x-api/media/append-media-upload), [finalize](https://docs.x.com/x-api/media/finalize-media-upload), [status](https://docs.x.com/x-api/media/get-media-upload-status), [media encoding](https://docs.x.com/x-api/media/upload-media).
+
+Post creation has no assumed idempotency contract. A lost response, unclear provider result or expired publishing lease becomes uncertain and cannot automatically publish again. A known post ID is retained even if an intermediate journal write fails; the worker then attempts to persist and report its completion. A crash with only a provider receipt checkpoint may require manual reconciliation because it lacks the completion lease envelope. Inspect the real account and record the verified receipt in the portal. A definite rejected preparation/post task requires fixing its cause and a fresh approval; it is not automatically retried. X API charges and quotas are separate from the portal’s model-token allowance.
+
 ## Pauses, failures and receipts
 
 - **Pause studio:** stops new dispatch. A request already accepted by a provider can finish.
@@ -34,7 +50,7 @@ Upload original or licensed MP4 media, record provenance and expiry, register th
 - **Cancel:** available for tasks that have not started. Running requests drain; the UI does not falsely claim remote cancellation.
 - **Failed model task:** inspect the error and retry only after fixing its cause. Maximum three attempts.
 - **Expired model lease:** bounded requeue after a delay. Worst-case reservation remains charged because spend may be unknown.
-- **Uncertain upload:** inspect YouTube Studio and the persistent worker journal. Enter the verified video ID/URL through the reconciliation form. Never create another upload merely because the HTTP response was lost.
+- **Uncertain publication:** inspect the relevant YouTube or X account and the persistent worker journal. Enter the verified provider ID/URL through the reconciliation form. Never create another publication merely because the HTTP response was lost.
 - **Pending completion:** the journal contains the exact completion payload and receipt. The worker tries to report it on restart. A stale lease cannot overwrite a new owner; the operator must reconcile any accepted upload manually.
 
 A token allowance is a conservative dispatch guard, not exact billing or a dollar cap. Every model attempt reserves 20,000 tokens. Successful attempts use reported token usage; failed/unknown attempts retain the reservation. Reservations carry across UTC midnight until resolved, and the per-attempt ledger retains the charged day.
@@ -69,4 +85,4 @@ Back up D1 and R2 using the hosting provider's supported backup/export facilitie
 - Run `npm run test:worker` for worker safety, actual queue SQL and registry tests.
 - The local integration script requires a disposable local database and generated sample MP4. It rotates the development identity's worker key and creates fixture records. Do not run it on production.
 - Hosted smoke verification must use the authenticated owner's access. A successful deployment status proves artifact publication, not live model execution or social API approval.
-- Current direct publishing covers private YouTube uploads only. Other adapters, OAuth onboarding, automatic model infrastructure provisioning, retention automation, hard monetary limits, multi-host scale and operational SLA verification remain future work.
+- Current direct publishing covers private YouTube uploads and explicitly approved X video posts; both provider paths are fixture-validated only. Other adapters, OAuth onboarding, automatic model infrastructure provisioning, retention automation, hard monetary limits, multi-host scale and operational SLA verification remain future work.

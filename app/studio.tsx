@@ -1,4 +1,5 @@
 "use client";
+import { xCaption } from "@/lib/x-text";
 import { useState, useRef, type FormEvent, type ReactNode } from "react";
 import {
   QueryClient,
@@ -53,7 +54,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  initialAgents,
   lanes,
   platformInfo,
   platforms,
@@ -171,7 +171,8 @@ export default function Studio({ displayName }: { displayName: string }) {
 }
 function ControlRoom({ displayName }: { displayName: string }) {
   const [tab, setTab] = useState("network"),
-    [selected, setSelected] = useState("astra"),
+    [publishAccount, setPublishAccount] = useState<AccountChoice | null>(null),
+    [caption, setCaption] = useState(""),
     [modal, setModal] = useState<string | null>(null),
     [job, setJob] = useState<Job | null>(null),
     [schedule, setSchedule] = useState<Schedule | null>(null),
@@ -195,9 +196,7 @@ function ControlRoom({ displayName }: { displayName: string }) {
     refetchInterval: 5000,
     retry: 1,
   });
-  const s = query.data,
-    agents = s?.agents || initialAgents,
-    agent = agents.find((a) => a.id === selected) || agents[0];
+  const s = query.data;
   async function act(body: Record<string, unknown>, success = "Saved") {
     setBusy(true);
     setError("");
@@ -245,6 +244,7 @@ function ControlRoom({ displayName }: { displayName: string }) {
     }
     if (action === "publish") {
       body.approved = f.get("approved") === "on";
+      body.made_with_ai = f.get("made_with_ai") === "on";
       body.scheduled = v.scheduled
         ? new Date(String(v.scheduled)).getTime()
         : Date.now();
@@ -805,9 +805,13 @@ function ControlRoom({ displayName }: { displayName: string }) {
                     <Button
                       variant="outline"
                       disabled={!s.assets.length || !s.account_total}
-                      onClick={() => setModal("publish")}
+                      onClick={() => {
+                        setPublishAccount(null);
+                        setCaption("");
+                        setModal("publish");
+                      }}
                     >
-                      <ArrowUpRight size={15} /> Schedule private upload
+                      <ArrowUpRight size={15} /> Schedule publication
                     </Button>
                   </div>
                   <SearchBar
@@ -1162,7 +1166,7 @@ function ControlRoom({ displayName }: { displayName: string }) {
                     ? "Register an authorized account"
                     : modal === "upload"
                       ? "Add source media"
-                      : "Schedule a private YouTube upload"}
+                      : "Schedule a reviewed video publication"}
             </DialogTitle>
             <DialogDescription>
               {modal === "schedule"
@@ -1340,7 +1344,16 @@ function ControlRoom({ displayName }: { displayName: string }) {
           )}
           {modal === "publish" && s && (
             <form className="form" onSubmit={(e) => submit(e, "publish")}>
-              <AccountPicker />
+              <AccountPicker onAccountChange={setPublishAccount} />
+              <input
+                type="hidden"
+                name="approval_scope"
+                value={
+                  publishAccount?.platform === "x"
+                    ? "x-account"
+                    : "youtube-private"
+                }
+              />
               <Field label="Approved source media">
                 <select name="asset" required>
                   <option value="">Select a video</option>
@@ -1351,35 +1364,74 @@ function ControlRoom({ displayName }: { displayName: string }) {
                   ))}
                 </select>
               </Field>
-              <Field label="Exact video title">
+              <Field
+                label={
+                  publishAccount?.platform === "x"
+                    ? "Internal queue title"
+                    : "Exact video title"
+                }
+              >
                 <Input name="title" minLength={3} maxLength={100} required />
               </Field>
-              <Field label="Exact description">
+              <Field
+                label={
+                  publishAccount?.platform === "x"
+                    ? "Exact X post text"
+                    : "Exact description"
+                }
+              >
                 <textarea
                   name="brief"
+                  value={caption}
+                  onChange={(e) => setCaption(e.target.value)}
                   minLength={1}
                   maxLength={4500}
                   required
                   rows={4}
                 />
               </Field>
-              <Field label="Upload time (local, optional)">
+              {publishAccount?.platform === "x" && (
+                <p className="muted">
+                  {xCaption(caption).weightedLength} / 280 weighted characters.
+                  URLs and emoji use X’s counting rules.
+                </p>
+              )}
+              <Field label="Publication time (local, optional)">
                 <Input type="datetime-local" name="scheduled" />
               </Field>
               <div className="inset-note">
-                Visibility: private. Review the result in YouTube Studio before
-                making it public. Account OAuth must match the registered
-                channel ID.
+                {publishAccount?.platform === "x"
+                  ? "This creates a real X post using the account’s existing audience settings and may be public. The post text above is published exactly; the queue title is internal."
+                  : "YouTube visibility is private. Review the result in YouTube Studio before making it public. Account OAuth must match the registered channel ID."}
               </div>
-              <label className="checkbox">
+              {publishAccount?.platform === "x" && (
+                <label className="checkbox" key={"ai-" + publishAccount.id}>
+                  <input type="checkbox" name="made_with_ai" />
+                  <span>Label this post as made with AI.</span>
+                </label>
+              )}
+              <label
+                className="checkbox"
+                key={"approval-" + publishAccount?.id}
+              >
                 <input type="checkbox" name="approved" required />
                 <span>
-                  I approve this exact private upload and confirm the source
-                  rights cover this account and use.
+                  I approve this exact{" "}
+                  {publishAccount?.platform === "x"
+                    ? "X post to the account’s audience"
+                    : "private YouTube upload"}{" "}
+                  and confirm the source rights cover this account and use.
                 </span>
               </label>
-              <Button type="submit" disabled={busy}>
-                Approve & schedule upload
+              <Button
+                type="submit"
+                disabled={
+                  busy ||
+                  !publishAccount ||
+                  (publishAccount.platform === "x" && !xCaption(caption).valid)
+                }
+              >
+                Approve & schedule publication
               </Button>
             </form>
           )}
@@ -1506,8 +1558,8 @@ function ControlRoom({ displayName }: { displayName: string }) {
                   }}
                 >
                   <Field
-                    label="Verified YouTube video ID or URL"
-                    hint="Check YouTube Studio first. Uncertain uploads are never retried automatically."
+                    label="Verified provider post ID or URL"
+                    hint="Check the destination account first. Uncertain publications are never retried automatically."
                   >
                     <Input
                       name="receipt"
@@ -1739,11 +1791,19 @@ function AgentInspector({
   );
 }
 
+type AccountChoice = {
+  id: string;
+  handle: string;
+  external_id: string;
+  platform: string;
+};
 function AccountPicker({
   purpose = "publish",
   lane,
+  onAccountChange,
 }: {
   lane?: string;
+  onAccountChange?: (account: AccountChoice | null) => void;
   purpose?: "publish" | "production" | "routing";
 }) {
   const [search, setSearch] = useState(""),
@@ -1793,7 +1853,7 @@ function AccountPicker({
         label={
           purpose !== "publish"
             ? "Find an authorized account"
-            : "Find a YouTube account"
+            : "Find a YouTube or X account"
         }
       >
         <Input
@@ -1807,15 +1867,19 @@ function AccountPicker({
         />
       </Field>
       <Field
-        label={purpose !== "publish" ? "Production account" : "YouTube account"}
+        label={
+          purpose !== "publish" ? "Production account" : "Publishing account"
+        }
       >
         <select
           name="account"
           required
           value={selected?.id || ""}
-          onChange={(e) =>
-            setSelected(options.find((a) => a.id === e.target.value) || null)
-          }
+          onChange={(e) => {
+            const value = options.find((a) => a.id === e.target.value) || null;
+            setSelected(value);
+            onAccountChange?.(value);
+          }}
         >
           <option value="">
             {query.isPending ? "Loading accounts…" : "Select an account"}

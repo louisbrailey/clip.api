@@ -47,7 +47,7 @@ try:
     production=req(path='/api/control?picker=accounts&purpose=production&q='+alias)[1]['items']
     check({a['platform'] for a in production}=={'youtube','x'},'production picker identifies both platforms')
     publication=req(path='/api/control?picker=accounts&q='+alias)[1]['items']
-    check(len(publication)==1 and publication[0]['platform']=='youtube','publishing picker remains YouTube-only')
+    check({a['platform'] for a in publication}=={'youtube','x'},'publishing picker exposes the two implemented adapters')
     start=int(time.time()*1000)-7200000
     payload=dict(request_id=str(uuid.uuid4()),account=accounts[0],title='Recurring integration meditation '+alias,brief='Create an original meditation for this account with a reviewable script.',mode='live',interval_minutes=60,next_run=start,max_runs=2,paused=False)
     check(action('schedule',**dict(payload,interval_minutes=1))[0]==400,'sub-hour recurrence rejected')

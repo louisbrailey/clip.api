@@ -2,7 +2,7 @@
 
 A private creative-operations portal for authorized social accounts. Astra delegates production work to studio leads, writers and editors. The operator can inspect the delegation tree, pause agents, edit instructions, set execution limits, schedule work, register accounts, upload source media and inspect the audit trail.
 
-This is a functioning first release with production-oriented queue safeguards. **It is not a verified 24/7 production deployment or a million-model system.** The portal and rehearsals work without external credentials. Live model execution and private YouTube uploads require a configured worker, provider credentials and an authenticated machine connection. Instagram, Threads, X, TikTok and Snapchat currently use manual handoff; their direct publishing adapters are not implemented. No account creation, engagement amplification, scraping, or unauthorized clip reposting is included.
+This is a functioning first release with production-oriented queue safeguards. **It is not a verified 24/7 production deployment or a million-model system.** The portal and rehearsals work without external credentials. Live model execution, private YouTube uploads and X video posts require a configured worker, provider credentials and an authenticated machine connection. Instagram, Threads, TikTok and Snapchat currently use manual handoff; their direct publishing adapters are not implemented. No account creation, engagement amplification, scraping, or unauthorized clip reposting is included.
 
 ## What runs
 
@@ -13,6 +13,7 @@ This is a functioning first release with production-oriented queue safeguards. *
 - Python worker with bounded parallelism, heartbeats, graceful draining, redacted logs and a durable receipt/completion journal.
 - Original or licensed MP4 uploads to private R2 storage with provenance records and rights expiry.
 - YouTube OAuth refresh, channel-identity verification, resumable-session upload, private visibility, final preflight and provider receipts. Network-ambiguous uploads become `uncertain` and cannot be replayed automatically.
+- X user-identity verification, chunked video upload, processing checks and exact approved captions. X publication requires separate audience approval because a post may be public under the account’s settings. Refresh tokens persist privately across restarts; ambiguous post outcomes are held for review. Provider calls are fixture-validated only.
 - Original ambient-noise video generator and local licensed-clip trimming via FFmpeg.
 - Rehearsals explicitly labeled as deterministic fixtures; they call no models and publish nothing.
 
@@ -73,6 +74,10 @@ python3 worker/runtime.py --once
 
 OpenClaw is optional. It may supervise this fixed worker process. Do not hand arbitrary shell or browser commands from model output to OpenClaw. No OpenClaw installation or configuration was changed by this project.
 
+## Publishing to X
+
+Register the account’s numeric X user ID and a credential reference, then supply its user OAuth grant to the worker. In **Content library**, approve the exact video and caption for that account’s audience. The portal validates X’s weighted caption limit with the official `twitter-text` parser and offers an explicit AI-label choice. It never silently truncates a caption or adds replies or engagement actions. See [X activation and recovery](docs/OPERATIONS.md#activate-x-video-posts) for scopes, persistent token storage and first-post verification.
+
 ## Rendering media
 
 Install FFmpeg, or use the optional pinned helper package:
@@ -96,6 +101,7 @@ Upload the resulting video through **Content library**, recording its rights evi
 ```sh
 npm run typecheck
 npm run test:worker
+node --experimental-strip-types --test tests/x-text.test.mjs
 npm run build
 ```
 
@@ -106,16 +112,17 @@ python3 tests/integration.py
 python3 tests/integration_schedules.py
 python3 tests/integration_machine.py
 python3 tests/integration_network.py
+python3 tests/integration_x.py
 ```
 
-The integration test is hardcoded to loopback. It creates test records, rotates and revokes the local test identity's worker key, and exercises simulated publication receipts. Never adapt it to a production account. Reset only disposable local test state if rerunning. The network release passes 73 worker/SQL tests and 135 local HTTP checks (43 workflow/media, 41 recurrence, 5 redirects and 46 network controls); see [verification evidence](docs/VERIFICATION.md). A disposable state directory can be passed to `node scripts/migrate-local.mjs /absolute/disposable/path` and selected when starting development with `CONSTELLATION_LOCAL_STATE=/absolute/disposable/path npm run dev`. Use a new directory for each full integration run.
+The integration test is hardcoded to loopback. It creates test records, rotates and revokes the local test identity's worker key, and exercises simulated publication receipts. Never adapt it to a production account. Reset only disposable local test state if rerunning. The X adapter release passes 105 worker/SQL tests, 3 official-parser tests and 154 local HTTP checks (42 workflow/media, 41 recurrence, 5 redirects, 46 network controls and 20 X approvals/recovery checks); see [verification evidence](docs/VERIFICATION.md). A disposable state directory can be passed to `node scripts/migrate-local.mjs /absolute/disposable/path` and selected when starting development with `CONSTELLATION_LOCAL_STATE=/absolute/disposable/path npm run dev`. Use a new directory for each full integration run.
 
 ## Operating boundaries
 
 - 10,000 accounts is a registry limit tested with SQLite records, not proof of OAuth capacity, permission to own that many accounts, or sustained publishing throughput.
 - Active execution is capped at 32 tasks per workspace; each workflow has one Astra plan and at most eight sequential delegated tasks. Agent concurrency limits apply to that agent's own jobs. Pauses propagate through the hierarchy.
 - A 20,000-token reservation is enforced per live model attempt. The daily ledger separates usage by UTC day. Failed or ambiguous attempts conservatively retain their reservation. This is not a provider-side dollar cap; configure provider spending limits separately.
-- The current graph contains a fixed 13-agent topology. Dynamically provisioning millions of agents, sharding queues and enterprise tenant administration are not implemented.
+- The graph begins with 13 built-in agents and supports custom definitions and production assignments. Provisioning millions of active model processes, sharding queues and enterprise tenant administration are not implemented.
 - Manual-platform exports consist of source media, rights records and task output packages. There are no fake “connected” platform statuses.
 - No platform API call, paid model call, or live social publication was made during validation.
 

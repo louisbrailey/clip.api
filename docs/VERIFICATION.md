@@ -5,7 +5,7 @@ Development verification performed September 11–12, 2026. This file records th
 | Requirement | Evidence | Result / limitation |
 |---|---|---|
 | Portal source and client/server compilation | `npx tsc --noEmit`; `npm run build` | Passed during implementation; final rebuild passed for the source prepared for publication. |
-| Durable records and migrations | D1 local execution of all four generated migrations; actual HTTP workflows | Persisted agents, jobs, usage, audit events, account records and media metadata verified locally. |
+| Durable records and migrations | D1 local execution of all five generated migrations; actual HTTP workflows | Persisted agents, jobs, usage, audit events, account records and media metadata verified locally. |
 | Astra delegation | HTTP creation, claim and completion; structured-output worker fixture tests | Exact `gpt-6-astra` selection verified; no paid model invocation. |
 | Per-agent controls | HTTP ancestor-pause check; SQL agent/global concurrency tests | Pauses and subsequent-claim configuration verified. No mid-call steering. |
 | Queue reliability | Atomic-claim SQL tests, competing HTTP callbacks, duplicate completion and stale lease checks | Single winning callback; losing callbacks cannot append children. Budget reservations and daily-ledger checks passed. |
@@ -13,7 +13,8 @@ Development verification performed September 11–12, 2026. This file records th
 | Media storage/playback | Real MP4 multipart upload plus authenticated byte-range GET | R2 local persistence and HTTP 206 behavior passed. |
 | Publishing protections | Concurrent approvals, channel mismatch fixtures, preflight pause, ambiguous response and receipt reconciliation | Duplicate upload queueing blocked; ambiguous uploads not retried automatically. |
 | YouTube API path | Fixture tests for OAuth channel check, private metadata, session upload and receipt | No live upload performed. Provider end-to-end validation is credential-gated. |
-| Other platforms | Explicit registry/manual-handoff UI and official requirements document | Direct adapters not implemented. |
+| X API path | 32 worker/token-store fixtures, 3 official-parser tests and 20 local HTTP approval/recovery checks | No live X request or publication performed. OAuth onboarding, provider access and end-to-end validation remain outstanding. |
+| Other platforms | Explicit registry/manual-handoff UI and official requirements document | Instagram, Threads, TikTok and Snapchat direct adapters not implemented. |
 | 10,000 account registry | SQLite test inserted 10,000 authorized-account fixture records and paginated | Storage/query smoke test only, not sustained live platform operations. |
 | Million-definition registry | Disposable SQLite fixture with one million lightweight configurations; six indexed page queries | Configuration storage/query evidence only. Million-model execution is not implemented, load-tested or provisioned. Global task cap remains 32. |
 | 24/7 runtime | Python loop, Docker/Compose source and persistent receipt journal | Worker unit tests passed. Docker/always-on hosting and valid production worker authentication remain unverified. The existing Sites gateway path was checked separately. |
@@ -46,3 +47,12 @@ New evidence covers owner and worker scope, creation replay, transactional count
 The reproducible local benchmark populated **1,000,000 lightweight agent definitions** in SQLite 3.51.0. Six actual page queries (first, late unique, late repeated-name, narrow final, missing prefix and late child) used the expected indexes. Returned result sets were 0–21 rows, with at most about 1,600 measured SQLite VM steps and 8,946 JSON bytes in these fixtures. The temporary database was approximately 338 MB and was removed after the run. Raw measurements, including environment-specific timings and query plans, are saved in `NETWORK_BENCHMARK.json`.
 
 These measurements are not a live D1 load test, million-job test, concurrency benchmark, deployment SLA or million-model runtime. Existing provider credentials, OAuth, host, real publication and browser interaction QA limitations remain. Source compilation and the production build passed for this release; live provider activation remains separate.
+
+
+## X video publishing release — September 12, 2026
+
+**105 unit/SQL/worker tests, 3 official-parser tests and 154 local HTTP checks passed (262 total)**. HTTP checks comprise 42 workflow/media, 41 recurrence, 5 credential-redirect, 46 network and 20 X-specific checks. The base completion-race winner created one child in this run. A fresh isolated database applied all five migrations; the new migration only adds immutable job AI-label metadata. Existing deployed migrations remain unchanged.
+
+X fixtures cover exact caption/chunk payloads, account identity and re-verification after token change, authorization, approved AI-label preservation, media processing failure/expiry, final preflight, lease loss, fixed endpoints, provider rejection, lost post responses, receipt preservation after disk-write failure, malformed recovery records and prevention of automatic reposting. Credential tests cover private file permissions, concurrent refresh serialization, replacement token persistence, interrupted-refresh quarantine, new-grant recovery and isolation from completion journals/provider-external requests. The parser tests exercise weighted Latin/CJK/emoji, URLs, joined emoji, normalization and invalid text. Local portal tests exercise actual persisted jobs, concurrent approval, audience-specific consent, caption rejection, pause/preflight, uncertain completion, duplicate-publication locks and manual receipt reconciliation.
+
+TypeScript compilation, the production build and generated migration application passed. No paid model call, real OAuth exchange, X post or YouTube upload occurred. The one-million-definition benchmark belongs to the preceding network release and was not rerun for this additive publication change. Browser interaction QA, Docker execution, always-on hosting, successful production worker authentication, real provider acceptance and sustained operation remain unverified.

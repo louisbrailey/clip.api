@@ -1,0 +1,1 @@
+ALTER TABLE `jobs` ADD `made_with_ai` integer DEFAULT 0 NOT NULL;

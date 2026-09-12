@@ -1,3 +1,4 @@
+import { xCaption } from "../../../lib/x-text";
 import { z } from "zod";
 import { updateAgent } from "../../../lib/network";
 import { identity, ApiError, failure, response, hash } from "../../../lib/auth";
@@ -46,7 +47,7 @@ export async function GET(request: Request) {
       if (lane) z.enum(lanes).parse(lane);
       const r = await db().batch([
         sql(
-          "SELECT id,handle,external_id,platform FROM accounts WHERE owner=? AND (?!='publish' OR platform='youtube') AND authorized=1 AND (paused=0 OR ?='routing') AND (?='' OR lane=?) AND (instr(lower(handle),lower(?))>0 OR instr(external_id,?)>0) ORDER BY created DESC,id LIMIT 60 OFFSET ?",
+          "SELECT id,handle,external_id,platform FROM accounts WHERE owner=? AND (?!='publish' OR platform IN ('youtube','x')) AND authorized=1 AND (paused=0 OR ?='routing') AND (?='' OR lane=?) AND (instr(lower(handle),lower(?))>0 OR instr(external_id,?)>0) ORDER BY created DESC,id LIMIT 60 OFFSET ?",
           owner,
           purpose,
           purpose,
@@ -57,7 +58,7 @@ export async function GET(request: Request) {
           offset,
         ),
         sql(
-          "SELECT COUNT(*) AS n FROM accounts WHERE owner=? AND (?!='publish' OR platform='youtube') AND authorized=1 AND (paused=0 OR ?='routing') AND (?='' OR lane=?) AND (instr(lower(handle),lower(?))>0 OR instr(external_id,?)>0)",
+          "SELECT COUNT(*) AS n FROM accounts WHERE owner=? AND (?!='publish' OR platform IN ('youtube','x')) AND authorized=1 AND (paused=0 OR ?='routing') AND (?='' OR lane=?) AND (instr(lower(handle),lower(?))>0 OR instr(external_id,?)>0)",
           owner,
           purpose,
           purpose,
@@ -583,24 +584,53 @@ export async function POST(request: Request) {
           asset: z.string().uuid(),
           scheduled: z.number().int().min(0),
           approved: z.literal(true),
+          approval_scope: z
+            .enum(["youtube-private", "x-account"])
+            .default("youtube-private"),
+          made_with_ai: z.boolean().default(false),
         })
         .parse(body);
       const a = await sql(
         "SELECT * FROM accounts WHERE owner=? AND id=?",
         owner,
         v.account,
-      ).first<{ platform: string; lane: string; paused: number }>();
+      ).first<{
+        platform: string;
+        lane: string;
+        paused: number;
+        authorized: number;
+        external_id: string;
+      }>();
       const m = await sql(
         "SELECT * FROM assets WHERE owner=? AND id=?",
         owner,
         v.asset,
       ).first<Asset>();
       if (!a || !m) throw new ApiError("Account or media not found", 404);
-      if (a.platform !== "youtube")
+      if (!["youtube", "x"].includes(a.platform))
         throw new ApiError(
           "This platform currently requires a manual publishing handoff",
         );
-      if (a.paused || !rightsValid(m, Math.max(now(), v.scheduled)))
+      if (
+        v.approval_scope !==
+        (a.platform === "x" ? "x-account" : "youtube-private")
+      )
+        throw new ApiError(
+          "Review and approve the selected platform’s audience before scheduling",
+        );
+      if (a.platform === "x" && !/^[0-9]{1,19}$/.test(a.external_id))
+        throw new ApiError(
+          "X publishing requires the account’s numeric user ID",
+        );
+      if (a.platform === "x" && !xCaption(v.brief).valid)
+        throw new ApiError(
+          "X caption exceeds 280 weighted characters or contains invalid text",
+        );
+      if (
+        a.paused ||
+        !a.authorized ||
+        !rightsValid(m, Math.max(now(), v.scheduled))
+      )
         throw new ApiError(
           "Account is paused or content rights are missing/expired",
         );
@@ -624,11 +654,12 @@ export async function POST(request: Request) {
           kind: "publish",
           mode: "live",
           approved: 1,
+          made_with_ai: a.platform === "x" ? +v.made_with_ai : 0,
         }),
         event(
           owner,
           "approval",
-          `Approved private YouTube upload: ${v.title}`,
+          `${a.platform === "x" ? "Approved X post to the account audience" : "Approved private YouTube upload"}: ${v.title}`,
           id,
         ),
       ]);
