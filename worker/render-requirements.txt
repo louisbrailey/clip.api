@@ -1,0 +1,2 @@
+# Optional FFmpeg binary distributor for local rendering; worker runtime is stdlib-only.
+imageio-ffmpeg==0.6.0
