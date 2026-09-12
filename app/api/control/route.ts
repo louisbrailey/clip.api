@@ -12,6 +12,7 @@ import {
 } from "../../../lib/store";
 import {
   workflowInput,
+  scheduleInput,
   agentInput,
   accountInput,
   planInput,
@@ -34,17 +35,23 @@ export async function GET(request: Request) {
       .parse(url.searchParams.get("offset") || 0);
     if (url.searchParams.get("picker") === "accounts") {
       const q = (url.searchParams.get("q") || "").slice(0, 120);
+      const purpose =
+        url.searchParams.get("purpose") === "production"
+          ? "production"
+          : "publish";
       const r = await db().batch([
         sql(
-          "SELECT id,handle,external_id FROM accounts WHERE owner=? AND platform='youtube' AND paused=0 AND (instr(lower(handle),lower(?))>0 OR instr(external_id,?)>0) ORDER BY created DESC LIMIT 60 OFFSET ?",
+          "SELECT id,handle,external_id,platform FROM accounts WHERE owner=? AND (?='production' OR platform='youtube') AND authorized=1 AND paused=0 AND (instr(lower(handle),lower(?))>0 OR instr(external_id,?)>0) ORDER BY created DESC,id LIMIT 60 OFFSET ?",
           owner,
+          purpose,
           q,
           q,
           offset,
         ),
         sql(
-          "SELECT COUNT(*) AS n FROM accounts WHERE owner=? AND platform='youtube' AND paused=0 AND (instr(lower(handle),lower(?))>0 OR instr(external_id,?)>0)",
+          "SELECT COUNT(*) AS n FROM accounts WHERE owner=? AND (?='production' OR platform='youtube') AND authorized=1 AND paused=0 AND (instr(lower(handle),lower(?))>0 OR instr(external_id,?)>0)",
           owner,
+          purpose,
           q,
           q,
         ),
@@ -124,7 +131,7 @@ async function complete(owner: string, body: Record<string, unknown>) {
         agent = t.role === "lead" ? j.lane : `${j.lane}-${t.role}`;
       statements.push(
         sql(
-          "INSERT OR IGNORE INTO jobs(id,owner,parent,depends,agent,title,brief,lane,mode,kind,status,created,scheduled) SELECT ?,?,?,?,?,?,?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM jobs WHERE owner=? AND id=? AND status='succeeded' AND completion_nonce=?)",
+          "INSERT OR IGNORE INTO jobs(id,owner,parent,depends,agent,title,brief,lane,mode,kind,status,created,scheduled,account,schedule_id,occurrence) SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM jobs WHERE owner=? AND id=? AND status='succeeded' AND completion_nonce=?)",
           id,
           owner,
           j.id,
@@ -138,6 +145,9 @@ async function complete(owner: string, body: Record<string, unknown>) {
           "queued",
           now() + i,
           now(),
+          j.account,
+          j.schedule_id,
+          j.occurrence,
           owner,
           j.id,
           nonce,
@@ -177,6 +187,18 @@ async function complete(owner: string, body: Record<string, unknown>) {
   if (!result[0].meta.changes)
     throw new ApiError("Completion lost its lease", 409);
   return response({ ok: true });
+}
+// SQLite changes() refers to the immediately preceding mutation in the D1 batch.
+// Keeping the control and its audit event in one transaction prevents false failures
+// after a control has already taken effect.
+function scheduleControlEvent(owner: string, message: string) {
+  return sql(
+    "INSERT INTO events(id,owner,type,message,created) SELECT ?,?,'schedule',?,? WHERE changes()>0",
+    crypto.randomUUID(),
+    owner,
+    message,
+    now(),
+  );
 }
 export async function POST(request: Request) {
   try {
@@ -247,6 +269,135 @@ export async function POST(request: Request) {
         event(owner, "queued", `Queued ${v.mode} workflow: ${v.title}`, id),
       ]);
       return response({ id });
+    }
+    if (action === "schedule") {
+      const v = scheduleInput.parse(body),
+        timestamp = now();
+      const id = v.id || v.request_id!;
+      const statement = v.id
+        ? sql(
+            `UPDATE schedules SET title=?,brief=?,mode=?,interval_minutes=?,next_run=?,max_runs=?,paused=?,revision=revision+1,updated=?
+            WHERE owner=? AND id=? AND account=? AND revision=?
+            AND NOT EXISTS(SELECT 1 FROM jobs history WHERE history.owner=schedules.owner AND history.schedule_id=schedules.id AND history.parent IS NULL AND history.occurrence=?)`,
+            v.title,
+            v.brief,
+            v.mode,
+            v.interval_minutes,
+            v.next_run,
+            v.max_runs,
+            +v.paused,
+            timestamp,
+            owner,
+            id,
+            v.account,
+            v.revision!,
+            v.next_run,
+          )
+        : sql(
+            `INSERT OR IGNORE INTO schedules(id,owner,account,title,brief,mode,interval_minutes,next_run,max_runs,paused,created,updated)
+            SELECT ?,?,?,?,?,?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM accounts WHERE owner=? AND id=? AND authorized=1)
+            AND (SELECT COUNT(*) FROM schedules WHERE owner=?)<10000`,
+            id,
+            owner,
+            v.account,
+            v.title,
+            v.brief,
+            v.mode,
+            v.interval_minutes,
+            v.next_run,
+            v.max_runs,
+            +v.paused,
+            timestamp,
+            timestamp,
+            owner,
+            v.account,
+            owner,
+          );
+      const result = await db().batch([
+        statement,
+        scheduleControlEvent(
+          owner,
+          `${v.id ? "Updated" : "Created"} recurring workflow: ${v.title}`,
+        ),
+      ]);
+      if (!result[0].meta.changes) {
+        // Creation request IDs are stable across retries: the first saved request wins.
+        const replay =
+          !v.id &&
+          (await sql(
+            "SELECT id FROM schedules WHERE owner=? AND id=?",
+            owner,
+            id,
+          ).first());
+        if (!replay)
+          throw new ApiError(
+            v.id
+              ? "Schedule changed or this start time was already used. Refresh, choose a new time, and keep its account unchanged."
+              : "Authorized account unavailable or schedule limit reached",
+            409,
+          );
+      }
+      return response({ id });
+    }
+    if (action === "schedule-pause") {
+      const v = z
+        .object({
+          id: z.string().uuid(),
+          revision: z.number().int().positive(),
+          paused: z.boolean(),
+        })
+        .parse(body);
+      const result = await db().batch([
+        sql(
+          "UPDATE schedules SET paused=?,revision=revision+1,updated=? WHERE owner=? AND id=? AND revision=?",
+          +v.paused,
+          now(),
+          owner,
+          v.id,
+          v.revision,
+        ),
+        scheduleControlEvent(
+          owner,
+          v.paused
+            ? "Recurring workflow paused; waiting tasks held and running calls may finish"
+            : "Recurring workflow resumed",
+        ),
+      ]);
+      if (!result[0].meta.changes)
+        throw new ApiError(
+          "Schedule changed. Refresh before changing its pause control.",
+          409,
+        );
+      return response({ ok: true });
+    }
+    if (action === "schedule-discard") {
+      const v = z
+        .object({
+          id: z.string().uuid(),
+          occurrence: z.number().int().nonnegative(),
+        })
+        .parse(body);
+      const result = await db().batch([
+        sql(
+          `UPDATE jobs SET status='cancelled',error='Occurrence discarded by operator'
+        WHERE owner=? AND schedule_id=? AND occurrence=? AND status IN ('queued','blocked','failed')
+        AND NOT EXISTS(SELECT 1 FROM jobs active WHERE active.owner=jobs.owner AND active.schedule_id=jobs.schedule_id
+          AND active.occurrence=jobs.occurrence AND active.status IN ('running','uncertain'))`,
+          owner,
+          v.id,
+          v.occurrence,
+        ),
+        scheduleControlEvent(
+          owner,
+          "Waiting occurrence discarded; future recurrence remains scheduled",
+        ),
+      ]);
+      if (!result[0].meta.changes)
+        throw new ApiError(
+          "This run is active, uncertain, or has no waiting tasks. Pause and let running calls finish first.",
+          409,
+        );
+      return response({ ok: true });
     }
     if (action === "agent") {
       const v = agentInput.parse(body);
@@ -373,7 +524,9 @@ export async function POST(request: Request) {
         event(
           owner,
           "control",
-          v.paused ? "Account publishing paused" : "Account publishing resumed",
+          v.paused
+            ? "Account production and publishing paused"
+            : "Account production and publishing resumed",
         ),
       ]);
       return response({ ok: true });

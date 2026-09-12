@@ -9,6 +9,7 @@ This is a functioning first release with production-oriented queue safeguards. *
 - React/Vinext control room with a rotatable 3D projection and a flat tree; 13 configured agents across Originals, Gaming, Sports and Ambient studios.
 - GPT-6 Astra (`gpt-6-astra`) as the fixed head orchestrator. Studio models can be changed to models available to your OpenAI API account. No automatic model substitution.
 - Durable D1 queue with atomic claims, leases, attempt limits, parent dependencies, cancellation, inherited pauses, per-agent concurrency, global concurrency and token reservations.
+- Account-specific recurring production schedules, with pause/resume, run limits, occurrence history, retry-safe creation, missed-interval coalescing and no overlapping unresolved runs.
 - Python worker with bounded parallelism, heartbeats, graceful draining, redacted logs and a durable receipt/completion journal.
 - Original or licensed MP4 uploads to private R2 storage with provenance records and rights expiry.
 - YouTube OAuth refresh, channel-identity verification, resumable-session upload, private visibility, final preflight and provider receipts. Network-ambiguous uploads become `uncertain` and cannot be replayed automatically.
@@ -29,6 +30,14 @@ npm run dev
 Open the exact local URL printed by the server. The starter simulates sign-in only on loopback, using the local test identity. Local sign-in is not real OAuth and is not included in deployed production builds.
 
 In the portal, choose **Try a rehearsal**, open **Work queue**, and choose **Run next rehearsal step** four times. Inspect the plan and each dependent task. The configuration tree contains agent definitions; it does not imply that models are running.
+
+## Recurring production
+
+Register an authorized account, open **Schedules**, and choose **New schedule**. Enter that account’s audience, creative direction, original/licensed sources, interval and next start. Use rehearsal mode to inspect delegation without model calls; **Run next rehearsal step** advances due rehearsals. Live schedules expand when the connected worker polls, including while the browser is closed.
+
+The shortest interval is one hour. Blank run limit repeats until paused; a numeric limit counts occurrences created, including failed or discarded runs. Missed intervals coalesce into one catch-up occurrence, maintaining the original elapsed-time cadence. A daily interval can shift local clock time across daylight-saving changes.
+
+Schedule/account/studio/workspace pauses hold future generation and waiting tasks. In-flight calls may finish. Failed or blocked descendants hold the next occurrence for review: retry the task, or use **Discard waiting run** after calls finish. That control cancels waiting tasks for the displayed occurrence and leaves future recurrence enabled. Schedule edits affect future occurrences; existing jobs retain their brief, account and occurrence. **View runs** filters the queue to that schedule. Publication approval remains separate.
 
 ## Worker setup
 
@@ -84,9 +93,10 @@ After generating `outputs/ambient-pink-noise.mp4` with a 10-second render and st
 
 ```sh
 python3 tests/integration.py
+python3 tests/integration_schedules.py
 ```
 
-The integration test is hardcoded to loopback. It creates test records, rotates and revokes the local test identity's worker key, and exercises simulated publication receipts. Never adapt it to a production account. Reset only disposable local test state if rerunning. Tests cover 40 worker/queue scenarios and 42 HTTP checks in the initial validation run; see [verification evidence](docs/VERIFICATION.md).
+The integration test is hardcoded to loopback. It creates test records, rotates and revokes the local test identity's worker key, and exercises simulated publication receipts. Never adapt it to a production account. Reset only disposable local test state if rerunning. The recurring release passes 59 worker/queue/recurrence tests, 42 existing HTTP checks and 41 recurrence HTTP checks; see [verification evidence](docs/VERIFICATION.md). A disposable state directory can be passed to `node scripts/migrate-local.mjs /absolute/disposable/path` and selected when starting development with `CONSTELLATION_LOCAL_STATE=/absolute/disposable/path npm run dev`. Use a new directory for each full integration run.
 
 ## Operating boundaries
 

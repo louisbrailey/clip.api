@@ -28,7 +28,9 @@ Upload original or licensed MP4 media, record provenance and expiry, register th
 
 - **Pause studio:** stops new dispatch. A request already accepted by a provider can finish.
 - **Pause an agent:** that agent and descendants cannot claim new work. Its instruction/concurrency edits apply to subsequent claims. This does not steer a model request already running.
-- **Pause account:** prevents new upload claims and blocks final preflight when noticed before dispatch.
+- **Pause account:** prevents new recurring production, account-linked task claims and upload claims; blocks final publishing preflight when noticed before dispatch.
+- **Pause schedule:** holds generation and all queued descendants for that schedule, including after a running Astra call completes. Existing calls drain.
+- **Discard waiting run:** cancels waiting/failed tasks for that occurrence only. It refuses while any task in the occurrence is running or uncertain. Future recurrence remains enabled, and the run still counts toward its limit.
 - **Cancel:** available for tasks that have not started. Running requests drain; the UI does not falsely claim remote cancellation.
 - **Failed model task:** inspect the error and retry only after fixing its cause. Maximum three attempts.
 - **Expired model lease:** bounded requeue after a delay. Worst-case reservation remains charged because spend may be unknown.
@@ -36,6 +38,16 @@ Upload original or licensed MP4 media, record provenance and expiry, register th
 - **Pending completion:** the journal contains the exact completion payload and receipt. The worker tries to report it on restart. A stale lease cannot overwrite a new owner; the operator must reconcile any accepted upload manually.
 
 A token allowance is a conservative dispatch guard, not exact billing or a dollar cap. Every model attempt reserves 20,000 tokens. Successful attempts use reported token usage; failed/unknown attempts retain the reservation. Reservations carry across UTC midnight until resolved, and the per-attempt ledger retains the charged day.
+
+## Recurring workflow operation
+
+The worker’s authenticated claim request expands up to ten eligible schedules before attempting a task claim. No open browser tab is required for live recurrence. Without a connected polling worker, live schedules remain due; no hosted background cron is implied. Rehearsal schedules expand only when an operator advances a rehearsal.
+
+Each root snapshots schedule ID, nominal occurrence timestamp, account, studio, mode and brief. Descendants retain those fields, and their model input includes only the platform/handle/account ID, not credential references or tokens. Schedule edits apply to later roots and require the current revision. An edit cannot reuse an occurrence timestamp already assigned to a root. Refresh an open edit form if its revision became stale during generation or another control change.
+
+Due generation checks authorization and account, studio, Astra, workspace and schedule pauses. Any queued, running, failed, blocked or uncertain task belonging to a schedule prevents its next occurrence. Review unresolved work and retry or discard it; a successful plan root alone does not mean its workflow is finished. The daily token budget and concurrency limits still apply to every subsequent claim.
+
+Creation uses a client-generated request ID retained across retries: the first saved request for that ID wins. Creating a different schedule requires a fresh ID. Controls and their audit records commit together. Generation inserts a unique root and advances its schedule in one transaction; the counter advances only if that exact root exists at the current occurrence. Missed intervals produce one catch-up run, not a backlog of every missed slot. The registry is capped at 10,000 schedules, independent of execution capacity.
 
 ## Supervision and recovery
 

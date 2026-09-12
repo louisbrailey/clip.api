@@ -76,6 +76,11 @@ def model_payload(context):
         raise RuntimeFailure("Invalid model ID")
     instructions = POLICY + "\nOperator instructions:\n" + agent["instructions"]
     source = {"title":job["title"], "studio":job["lane"], "brief":job["brief"], "previous_output":context.get("dependency", "")}
+    account = context.get("account")
+    if account:
+        source["account"] = {k: account[k] for k in ("platform", "handle", "external_id") if k in account}
+    if job.get("schedule_id"):
+        source["recurrence"] = {"schedule_id": job["schedule_id"], "occurrence": job.get("occurrence")}
     text = json.dumps(source, ensure_ascii=False)
     # Byte count bounds tokens conservatively. This fits the 20k queue reservation.
     if len((instructions + text).encode("utf-8")) > 15000:

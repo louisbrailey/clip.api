@@ -102,6 +102,8 @@ export const jobs = sqliteTable(
     completion_nonce: text(),
     completion_hash: text(),
     approved: integer().notNull().default(0),
+    schedule_id: text(),
+    occurrence: integer(),
   },
   (t) => [
     index("jobs_claim").on(t.owner, t.mode, t.status, t.scheduled),
@@ -115,6 +117,10 @@ export const jobs = sqliteTable(
         sql`kind='publish' AND status IN ('queued','running','uncertain','succeeded')`,
       ),
     index("jobs_lease").on(t.owner, t.lease),
+    index("jobs_schedule_status").on(t.owner, t.schedule_id, t.status),
+    uniqueIndex("jobs_schedule_occurrence")
+      .on(t.owner, t.schedule_id, t.occurrence)
+      .where(sql`parent IS NULL AND schedule_id IS NOT NULL`),
   ],
 );
 export const events = sqliteTable(
@@ -139,4 +145,28 @@ export const usage = sqliteTable(
     tokens: integer().notNull(),
   },
   (t) => [index("usage_owner_day").on(t.owner, t.day)],
+);
+
+export const schedules = sqliteTable(
+  "schedules",
+  {
+    id: text().primaryKey(),
+    owner: text().notNull(),
+    account: text().notNull(),
+    title: text().notNull(),
+    brief: text().notNull(),
+    mode: text().notNull(),
+    interval_minutes: integer().notNull(),
+    next_run: integer().notNull(),
+    paused: integer().notNull().default(0),
+    generated_count: integer().notNull().default(0),
+    max_runs: integer(),
+    revision: integer().notNull().default(1),
+    created: integer().notNull(),
+    updated: integer().notNull(),
+  },
+  (t) => [
+    index("schedules_due").on(t.owner, t.mode, t.paused, t.next_run),
+    index("schedules_account").on(t.owner, t.account),
+  ],
 );

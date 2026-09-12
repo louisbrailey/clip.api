@@ -8,6 +8,7 @@ import {
 } from "@tanstack/react-query";
 import {
   Activity,
+  CalendarClock,
   ArrowDownToLine,
   ArrowUpRight,
   AudioLines,
@@ -62,11 +63,15 @@ import {
   type State,
   type Account,
   type Asset,
+  type Schedule,
 } from "@/lib/domain";
+
+import { SchedulePanel, ScheduleForm } from "./schedules";
 
 const navigation = [
   { id: "network", name: "Orchestration", icon: Network },
   { id: "queue", name: "Work queue", icon: ListTodo },
+  { id: "schedules", name: "Schedules", icon: CalendarClock },
   { id: "accounts", name: "Accounts", icon: Users },
   { id: "library", name: "Content library", icon: Film },
   { id: "activity", name: "Activity log", icon: Activity },
@@ -168,6 +173,7 @@ function ControlRoom({ displayName }: { displayName: string }) {
     [selected, setSelected] = useState("astra"),
     [modal, setModal] = useState<string | null>(null),
     [job, setJob] = useState<Job | null>(null),
+    [schedule, setSchedule] = useState<Schedule | null>(null),
     [message, setMessage] = useState(""),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
@@ -220,6 +226,13 @@ function ControlRoom({ displayName }: { displayName: string }) {
       body.scheduled = v.scheduled
         ? new Date(String(v.scheduled)).getTime()
         : Date.now();
+    if (action === "schedule") {
+      body.interval_minutes = Number(v.interval_minutes);
+      body.next_run = new Date(String(v.next_run)).getTime();
+      body.max_runs = v.max_runs ? Number(v.max_runs) : null;
+      body.paused = f.get("paused") === "on";
+      if (v.revision) body.revision = Number(v.revision);
+    }
     if (action === "account") {
       body.authorized = f.get("authorized") === "on";
       body.daily_limit = Number(v.daily_limit);
@@ -237,6 +250,7 @@ function ControlRoom({ displayName }: { displayName: string }) {
     if (r) {
       setModal(null);
       if (action === "workflow" || action === "publish") navigate("queue");
+      if (action === "schedule") navigate("schedules");
     }
   }
   async function upload(e: FormEvent<HTMLFormElement>) {
@@ -368,13 +382,15 @@ function ControlRoom({ displayName }: { displayName: string }) {
                   ? "Direct the work. Follow every delegation."
                   : tab === "queue"
                     ? "From a single brief to a complete publishing package."
-                    : tab === "accounts"
-                      ? "A registry for accounts you own or are authorized to manage."
-                      : tab === "library"
-                        ? "Source media and the rights behind every publication."
-                        : tab === "activity"
-                          ? "A durable record of work, decisions and controls."
-                          : "Set the limits. Connect the runtime. Keep control."}
+                    : tab === "schedules"
+                      ? "Give every account a steady production rhythm."
+                      : tab === "accounts"
+                        ? "A registry for accounts you own or are authorized to manage."
+                        : tab === "library"
+                          ? "Source media and the rights behind every publication."
+                          : tab === "activity"
+                            ? "A durable record of work, decisions and controls."
+                            : "Set the limits. Connect the runtime. Keep control."}
               </p>
             </div>
             <div className="heading-actions">
@@ -402,22 +418,27 @@ function ControlRoom({ displayName }: { displayName: string }) {
               )}
               <Button
                 disabled={!s || busy}
-                onClick={() =>
+                onClick={() => {
+                  setSchedule(null);
                   setModal(
-                    tab === "accounts"
-                      ? "account"
-                      : tab === "library"
-                        ? "upload"
-                        : "workflow",
-                  )
-                }
+                    tab === "schedules"
+                      ? "schedule"
+                      : tab === "accounts"
+                        ? "account"
+                        : tab === "library"
+                          ? "upload"
+                          : "workflow",
+                  );
+                }}
               >
                 <Plus size={16} />
-                {tab === "accounts"
-                  ? "Register account"
-                  : tab === "library"
-                    ? "Add media"
-                    : "New workflow"}
+                {tab === "schedules"
+                  ? "New schedule"
+                  : tab === "accounts"
+                    ? "Register account"
+                    : tab === "library"
+                      ? "Add media"
+                      : "New workflow"}
               </Button>
             </div>
           </div>
@@ -694,6 +715,28 @@ function ControlRoom({ displayName }: { displayName: string }) {
                     setOffset={setOffset}
                   />
                 </section>
+              )}
+              {tab === "schedules" && (
+                <SchedulePanel
+                  state={s}
+                  busy={busy}
+                  offset={offset}
+                  search={search}
+                  onSearch={(v) => {
+                    setSearch(v);
+                    setOffset(0);
+                  }}
+                  onPage={setOffset}
+                  act={act}
+                  onEdit={(v) => {
+                    setSchedule(v);
+                    setModal("schedule");
+                  }}
+                  onRun={(id) => {
+                    navigate("queue");
+                    setSearch(id);
+                  }}
+                />
               )}
               {tab === "accounts" && (
                 <section className="panel">
@@ -1166,24 +1209,39 @@ function ControlRoom({ displayName }: { displayName: string }) {
         <DialogContent className="studio-dialog">
           <DialogHeader>
             <DialogTitle>
-              {modal === "workflow"
-                ? "Start a workflow"
-                : modal === "account"
-                  ? "Register an authorized account"
-                  : modal === "upload"
-                    ? "Add source media"
-                    : "Schedule a private YouTube upload"}
+              {modal === "schedule"
+                ? schedule
+                  ? "Edit recurring workflow"
+                  : "Create a recurring workflow"
+                : modal === "workflow"
+                  ? "Start a workflow"
+                  : modal === "account"
+                    ? "Register an authorized account"
+                    : modal === "upload"
+                      ? "Add source media"
+                      : "Schedule a private YouTube upload"}
             </DialogTitle>
             <DialogDescription>
-              {modal === "workflow"
-                ? "Astra turns your brief into a bounded sequence of studio tasks."
-                : modal === "account"
-                  ? "This records your account. Configure credentials separately on the worker."
-                  : modal === "upload"
-                    ? "Attach the source video and record your right to publish it."
-                    : "Review the exact title, description, account and source before approving the upload."}
+              {modal === "schedule"
+                ? "Set the creative direction and timing for one authorized account."
+                : modal === "workflow"
+                  ? "Astra turns your brief into a bounded sequence of studio tasks."
+                  : modal === "account"
+                    ? "This records your account. Configure credentials separately on the worker."
+                    : modal === "upload"
+                      ? "Attach the source video and record your right to publish it."
+                      : "Review the exact title, description, account and source before approving the upload."}
             </DialogDescription>
           </DialogHeader>
+          {modal === "schedule" && (
+            <ScheduleForm
+              value={schedule}
+              busy={busy}
+              onSubmit={(e) => submit(e, "schedule")}
+            >
+              <AccountPicker purpose="production" />
+            </ScheduleForm>
+          )}
           {modal === "workflow" && (
             <form className="form" onSubmit={(e) => submit(e, "workflow")}>
               <Field label="Workflow title">
@@ -1416,6 +1474,12 @@ function ControlRoom({ displayName }: { displayName: string }) {
                 {currentJob.parent && (
                   <span>
                     Parent <code>{currentJob.parent}</code>
+                  </span>
+                )}
+                {currentJob.schedule_id && (
+                  <span>
+                    Recurring schedule <code>{currentJob.schedule_id}</code> ·{" "}
+                    {when(currentJob.occurrence!)}
                   </span>
                 )}
                 <span>
@@ -1992,25 +2056,40 @@ function NetworkGraph({
   );
 }
 
-function AccountPicker() {
+function AccountPicker({
+  purpose = "publish",
+}: {
+  purpose?: "publish" | "production";
+}) {
   const [search, setSearch] = useState(""),
     [offset, setOffset] = useState(0),
     [selected, setSelected] = useState<{
       id: string;
       handle: string;
       external_id: string;
+      platform: string;
     } | null>(null);
   const query = useQuery<{
-    items: { id: string; handle: string; external_id: string }[];
+    items: {
+      id: string;
+      handle: string;
+      external_id: string;
+      platform: string;
+    }[];
     total: number;
   }>({
-    queryKey: ["account-picker", search, offset],
+    queryKey: ["account-picker", purpose, search, offset],
     queryFn: async () => {
       const r = await fetch(
-        `/api/control?picker=accounts&q=${encodeURIComponent(search)}&offset=${offset}`,
+        `/api/control?picker=accounts&purpose=${purpose}&q=${encodeURIComponent(search)}&offset=${offset}`,
       );
       const v = (await r.json()) as {
-        items: { id: string; handle: string; external_id: string }[];
+        items: {
+          id: string;
+          handle: string;
+          external_id: string;
+          platform: string;
+        }[];
         total: number;
         error?: string;
       };
@@ -2025,7 +2104,13 @@ function AccountPicker() {
         : items;
   return (
     <>
-      <Field label="Find a YouTube account">
+      <Field
+        label={
+          purpose === "production"
+            ? "Find an authorized account"
+            : "Find a YouTube account"
+        }
+      >
         <Input
           value={search}
           onChange={(e) => {
@@ -2036,7 +2121,11 @@ function AccountPicker() {
           maxLength={120}
         />
       </Field>
-      <Field label="YouTube account">
+      <Field
+        label={
+          purpose === "production" ? "Production account" : "YouTube account"
+        }
+      >
         <select
           name="account"
           required
@@ -2050,7 +2139,8 @@ function AccountPicker() {
           </option>
           {options.map((a) => (
             <option value={a.id} key={a.id}>
-              {a.handle} · {a.external_id}
+              {a.handle} · {platformInfo[a.platform]?.name || a.platform} ·{" "}
+              {a.external_id}
             </option>
           ))}
         </select>

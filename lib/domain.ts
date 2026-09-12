@@ -146,6 +146,8 @@ export type Job = {
   asset: string | null;
   receipt: string;
   approved: number;
+  schedule_id: string | null;
+  occurrence: number | null;
 };
 export type Account = {
   id: string;
@@ -158,6 +160,29 @@ export type Account = {
   paused: number;
   daily_limit: number;
   created: number;
+};
+export type Schedule = {
+  id: string;
+  account: string;
+  title: string;
+  brief: string;
+  mode: "live" | "rehearsal";
+  interval_minutes: number;
+  next_run: number;
+  paused: number;
+  generated_count: number;
+  max_runs: number | null;
+  revision: number;
+  created: number;
+  updated: number;
+  handle: string;
+  platform: string;
+  lane: string;
+  account_paused: number;
+  pending: number;
+  running: number;
+  review: number;
+  pending_occurrence: number | null;
 };
 export type Asset = {
   id: string;
@@ -191,6 +216,8 @@ export type State = {
   jobs: Job[];
   accounts: Account[];
   assets: Asset[];
+  schedules: Schedule[];
+  schedule_total: number;
   events: Event[];
   settings: Settings;
   counts: Record<string, number>;
@@ -208,6 +235,27 @@ export const workflowInput = z.object({
   mode: z.enum(["rehearsal", "live"]),
   scheduled: z.number().int().nonnegative().optional(),
 });
+export const scheduleInput = z
+  .object({
+    request_id: z.string().uuid().optional(),
+    id: z.string().uuid().optional(),
+    revision: z.number().int().positive().optional(),
+    account: z.string().uuid(),
+    title: z.string().trim().min(3).max(160),
+    brief: z.string().trim().min(15).max(6000),
+    mode: z.enum(["rehearsal", "live"]),
+    interval_minutes: z.number().int().min(60).max(525600),
+    next_run: z.number().int().nonnegative().max(4102444800000),
+    max_runs: z.number().int().min(1).max(1000000).nullable(),
+    paused: z.boolean(),
+  })
+  .refine(
+    (v) => (v.id ? v.revision !== undefined : v.request_id !== undefined),
+    {
+      message:
+        "Supply a revision for edits or a stable request ID for creation",
+    },
+  );
 export const accountInput = z.object({
   platform: z.enum(platforms),
   handle: z.string().trim().min(2).max(100),

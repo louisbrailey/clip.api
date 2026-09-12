@@ -49,3 +49,14 @@ Browser writes require the same origin. Database statements are parameterized. M
 The current bounded implementation uses one D1 database, 13 configured agents and up to 32 simultaneous tasks. Each page returns at most 60 jobs/accounts and 100 audit events; summary counts query the complete workspace. One D1 database is single-threaded and has a 10 GB storage limit. Million-job throughput requires measured performance, ownership-based sharding, archival and a different queue/execution strategy. [Cloudflare D1 limits](https://developers.cloudflare.com/d1/platform/limits/).
 
 A capacity illustration—not a result: one million jobs/day averages 11.57 jobs/second. At 30 seconds per job, approximately 347 concurrent workers would be occupied before redundancy or burst headroom. At 1,500 tokens/job, demand would be 1.5 billion tokens/day. Neither these limits nor that spend is authorized or provisioned by a portal setting.
+
+
+## Recurring account workflows
+
+`schedules` stores account-specific briefs, elapsed-time cadence, the next nominal occurrence, mode, pause state, run limit/count and an optimistic edit revision. `jobs.schedule_id` and `jobs.occurrence` link every root and descendant. A partial unique index on owner/schedule/occurrence applies only to roots, allowing children to share immutable occurrence context.
+
+Every live worker claim expands at most ten due schedules. Candidate selection filters pauses, account authorization, mode, limits and all unresolved jobs before its limit. The same eligibility query is used inside `INSERT … SELECT` to revalidate concurrent controls. A D1 transaction inserts a root, advances only the occurrence tied to that new root ID, and records one event. Advancement jumps over missed intervals while preserving cadence. A replay or competing expander cannot create or count the same root twice.
+
+Generation snapshots the account’s studio and brief; completion propagates account/schedule/occurrence fields. Claims independently enforce schedule and account pause, plus the chosen studio pause even when the task is assigned to Astra. Changing schedule mode or brief does not rewrite existing work. Failed/blocked/uncertain descendants prevent overlap until resolved or safely discarded. These schedules produce production artifacts, never publication approval.
+
+Operator saves use stable creation request IDs, optimistic revisions on edits, atomic audit records and rejection of previously used occurrence timestamps. The portal paginates schedules and can filter all jobs by schedule ID. This is bounded single-workspace orchestration; it does not implement million-agent provisioning, queue sharding or a 24/7 hosted worker by itself.

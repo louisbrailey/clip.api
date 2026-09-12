@@ -13,6 +13,13 @@ def context(kind='plan'):
 class WorkerTests(unittest.TestCase):
     def test_exact_astra_model(self):
         p=r.model_payload(context());self.assertEqual(p['model'],'gpt-6-astra');self.assertEqual(p['max_output_tokens'],3000);self.assertNotIn('tools',p);self.assertFalse(p['store'])
+    def test_account_context_omits_credential_fields(self):
+        c=context();c['account']={'platform':'youtube','handle':'@original','external_id':'channel','credential_ref':'PRIVATE_REF','token':'never-send'}
+        c['job'].update(schedule_id='schedule',occurrence=1800000000000)
+        source=json.loads(r.model_payload(c)['input'])
+        self.assertEqual(source['account'],{'platform':'youtube','handle':'@original','external_id':'channel'})
+        self.assertEqual(source['recurrence']['occurrence'],1800000000000)
+        self.assertNotIn('never-send',json.dumps(source))
     def test_head_model_cannot_be_substituted(self):
         c=context();c['agent']['model']='other-model'
         with self.assertRaises(r.RuntimeFailure):r.model_payload(c)

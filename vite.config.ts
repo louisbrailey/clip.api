@@ -58,6 +58,10 @@ export default defineConfig(async () => {
       cloudflare({
         viteEnvironment: { name: "rsc", childEnvironments: ["ssr"] },
         inspectorPort: false,
+        // An explicit disposable state directory keeps integration fixtures separate.
+        persistState: process.env.CONSTELLATION_LOCAL_STATE
+          ? { path: process.env.CONSTELLATION_LOCAL_STATE }
+          : true,
         config: localBindingConfig,
       }),
     ],

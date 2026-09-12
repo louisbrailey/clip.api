@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { expandSchedules } from "./schedules";
 import { initialAgents, type Agent, type Job, type State } from "./domain";
 export const now = () => Date.now();
 export const day = () => Math.floor(now() / 86400000);
@@ -64,8 +65,9 @@ export async function state(
   const r = await db().batch<Record<string, unknown>>([
     sql("SELECT * FROM agents WHERE owner=? ORDER BY rowid", owner),
     sql(
-      "SELECT * FROM jobs WHERE owner=? AND (instr(lower(title),lower(?))>0 OR instr(id,?)>0) ORDER BY created DESC, id DESC LIMIT 60 OFFSET ?",
+      "SELECT * FROM jobs WHERE owner=? AND (instr(lower(title),lower(?))>0 OR instr(id,?)>0 OR instr(COALESCE(schedule_id,''),?)>0) ORDER BY created DESC, id DESC LIMIT 60 OFFSET ?",
       owner,
+      search,
       search,
       search,
       offset,
@@ -111,6 +113,27 @@ export async function state(
       "SELECT lane,status,COUNT(*) AS n FROM jobs WHERE owner=? GROUP BY lane,status",
       owner,
     ),
+    sql(
+      `SELECT r.*,a.handle,a.platform,a.lane,a.paused AS account_paused,
+      (SELECT COUNT(*) FROM jobs j WHERE j.owner=r.owner AND j.schedule_id=r.id AND j.status IN ('queued','running','blocked','failed','uncertain')) AS pending,
+      (SELECT COUNT(*) FROM jobs j WHERE j.owner=r.owner AND j.schedule_id=r.id AND j.status IN ('running','uncertain')) AS running,
+      (SELECT COUNT(*) FROM jobs j WHERE j.owner=r.owner AND j.schedule_id=r.id AND j.status IN ('blocked','failed','uncertain')) AS review,
+      (SELECT MIN(occurrence) FROM jobs j WHERE j.owner=r.owner AND j.schedule_id=r.id AND j.status IN ('queued','running','blocked','failed','uncertain')) AS pending_occurrence
+      FROM schedules r JOIN accounts a ON a.owner=r.owner AND a.id=r.account
+      WHERE r.owner=? AND (instr(lower(r.title),lower(?))>0 OR instr(lower(a.handle),lower(?))>0)
+      ORDER BY r.created DESC,r.id LIMIT 60 OFFSET ?`,
+      owner,
+      search,
+      search,
+      offset,
+    ),
+    sql(
+      `SELECT COUNT(*) AS n FROM schedules r JOIN accounts a ON a.owner=r.owner AND a.id=r.account
+      WHERE r.owner=? AND (instr(lower(r.title),lower(?))>0 OR instr(lower(a.handle),lower(?))>0)`,
+      owner,
+      search,
+      search,
+    ),
   ]);
   const counts: Record<string, number> = {};
   for (const v of r[6].results) counts[v.status as string] = v.n as number;
@@ -137,6 +160,8 @@ export async function state(
   return {
     agent_counts: agentCounts,
     lane_counts: laneCounts,
+    schedules: r[12].results,
+    schedule_total: r[13].results[0].n,
     agents: r[0].results,
     jobs: visibleJobs,
     accounts: r[2].results,
@@ -220,6 +245,9 @@ export async function claim(owner: string, mode: string, token: string) {
     now(),
   ).first<Job>();
   if (existing) return existing;
+  await expandSchedules(owner, mode);
+  const cutoff = now(),
+    billingDay = Math.floor(cutoff / 86400000);
   // The budget, inherited pause and concurrency checks are inside the atomic claim.
   return sql(
     `UPDATE jobs SET status='running',lease=?,lease_until=?,attempts=attempts+1,
@@ -227,6 +255,9 @@ export async function claim(owner: string, mode: string, token: string) {
     WHERE owner=? AND NOT EXISTS(SELECT 1 FROM jobs previous WHERE previous.owner=jobs.owner AND previous.lease=?) AND id=(
       SELECT j.id FROM jobs j JOIN settings s ON s.owner=j.owner JOIN agents a ON a.owner=j.owner AND a.id=j.agent
       WHERE j.owner=? AND j.mode=? AND j.status='queued' AND j.scheduled<=? AND j.attempts<3 AND s.paused=0
+      AND (j.account IS NULL OR EXISTS(SELECT 1 FROM accounts c WHERE c.owner=j.owner AND c.id=j.account AND c.paused=0 AND c.authorized=1))
+      AND (j.schedule_id IS NULL OR EXISTS(SELECT 1 FROM schedules r WHERE r.owner=j.owner AND r.id=j.schedule_id AND r.paused=0))
+      AND EXISTS(SELECT 1 FROM agents studio WHERE studio.owner=j.owner AND studio.id=j.lane AND studio.paused=0)
       AND (j.depends IS NULL OR EXISTS(SELECT 1 FROM jobs d WHERE d.owner=j.owner AND d.id=j.depends AND d.status='succeeded'))
       AND NOT EXISTS (WITH RECURSIVE tree AS (SELECT id,parent,paused,concurrency FROM agents WHERE owner=j.owner AND id=j.agent UNION ALL SELECT p.id,p.parent,p.paused,p.concurrency FROM agents p JOIN tree t ON p.id=t.parent WHERE p.owner=j.owner) SELECT 1 FROM tree WHERE paused=1)
       AND (SELECT COUNT(*) FROM jobs r WHERE r.owner=j.owner AND r.status='running') < s.concurrency
@@ -238,16 +269,16 @@ export async function claim(owner: string, mode: string, token: string) {
       ORDER BY j.scheduled,j.created,j.id LIMIT 1
     ) AND status='queued' RETURNING *`,
     token,
-    now() + 180000,
-    day(),
+    cutoff + 180000,
+    billingDay,
     owner,
     token,
     owner,
     mode,
-    now(),
-    day(),
-    now(),
-    day(),
+    cutoff,
+    billingDay,
+    cutoff,
+    billingDay,
   ).first<Job>();
 }
 export async function jobContext(owner: string, j: Job) {
