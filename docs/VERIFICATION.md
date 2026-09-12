@@ -16,7 +16,7 @@ Development verification performed September 11–12, 2026. This file records th
 | Other platforms | Explicit registry/manual-handoff UI and official requirements document | Direct adapters not implemented. |
 | 10,000 account registry | SQLite test inserted 10,000 authorized-account fixture records and paginated | Storage/query smoke test only, not sustained live platform operations. |
 | Million-model scale | Architecture and capacity estimate | Not implemented, load-tested or provisioned. Current global task cap is 32. |
-| 24/7 runtime | Python loop, Docker/Compose source and persistent receipt journal | Worker unit tests passed. Docker/always-on hosting and machine ingress remain unverified. |
+| 24/7 runtime | Python loop, Docker/Compose source and persistent receipt journal | Worker unit tests passed. Docker/always-on hosting and valid production worker authentication remain unverified. The existing Sites gateway path was checked separately. |
 | Authentication | Anonymous rejection, cross-origin write rejection, worker scope, key revocation | Local authenticated API checks passed. Sites gateway is the production browser identity trust boundary. |
 
 Initial suite: **40 unit/queue tests passed**, plus **42 local HTTP integration checks passed**. Provider tests replace network responses with controlled fixtures. No model or social API calls were made. Browser screenshot/interaction QA was not performed; the UI was compiled and rendered through the local HTTP server. The local in-app preview handoff was queued by the application.
@@ -28,8 +28,11 @@ Three additional queue regressions cover a shared expiry-accounting cutoff, pagi
 
 ## Recurring production release — September 12, 2026
 
-**59 unit/SQL/worker tests**, **42 existing HTTP checks**, and **41 recurrence HTTP checks** pass. Local HTTP checks used an isolated disposable database selected through `CONSTELLATION_LOCAL_STATE`; prior development data was preserved. All provider responses are fixtures; no model or social API requests were made.
+**62 unit/SQL/worker tests**, **42 existing HTTP checks**, and **41 recurrence HTTP checks** pass. Local HTTP checks used an isolated disposable database selected through `CONSTELLATION_LOCAL_STATE`; prior development data was preserved. All provider responses are fixtures; no model or social API requests were made.
 
 Recurrence evidence covers concurrent expansion, lost-response replay, root uniqueness with inherited child metadata, atomic audit rollback, stale edits, historical occurrence collision rejection, account/platform selection, all pause levels, missed-interval coalescing, owner/mode isolation, max-run exhaustion, failure review, scoped discard, future-only brief changes and deterministic rehearsal execution. The existing completion/approval race checks and real local MP4/R2 byte-range checks also passed with the new schema.
 
 The additive migration preserves deployed tables and adds schedules plus nullable job metadata and indexes. Local migration bootstrap and the production build passed. No always-on runtime, paid model capability, OAuth activation, live provider publication, browser interaction QA or million-agent scale was established by these checks.
+
+
+Machine access was checked against the published portal using its existing Sites token, without rotation. The endpoint returned HTTP 401 with the application's JSON “Worker key is invalid or revoked” response to an intentionally invalid app key. This proves that the supported gateway path reaches the application and retains app-key enforcement; it does not prove successful worker authentication, live jobs or provider access. Worker tests cover portal-only header scope, malformed-token rejection, redacted header errors and HTTPS enforcement. Five loopback HTTP checks confirm that authenticated GET/POST requests do not follow 302/307 redirects or forward credentials to their destination.

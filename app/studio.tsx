@@ -1078,9 +1078,9 @@ function ControlRoom({ displayName }: { displayName: string }) {
                           <strong>Start the supervised runtime</strong>
                           <p>
                             Use the Docker deployment in the source deliverable.
-                            Private Sites gateway access must be configured for
-                            machine traffic; a worker key alone does not bypass
-                            sign-in.
+                            Configure SITES_API_TOKEN for this portal alongside
+                            your worker key, then start the worker on an
+                            always-on host.
                           </p>
                         </div>
                       </li>

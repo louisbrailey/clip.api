@@ -42,6 +42,32 @@ class WorkerTests(unittest.TestCase):
         with self.assertRaises(r.RuntimeFailure):r.Portal('https://key@example.com','cs_'+'1'*64)
     def test_local_endpoint_allowed(self):
         self.assertEqual(r.Portal('http://localhost:5173','cs_'+'1'*64).url,'http://localhost:5173')
+    def test_sites_token_stays_in_portal_requests(self):
+        token='fixture-sites-token-123456'
+        with patch.dict(os.environ,{'SITES_API_TOKEN':token,'OPENAI_API_KEY':'fixture-openai'},clear=True):
+            portal=r.Portal('https://portal.example','cs_'+'1'*64)
+            with patch.object(r,'json_http',return_value=({'job':None},{},200)) as call:
+                portal.call('claim',request_id='fixture')
+                self.assertEqual(call.call_args.kwargs['headers']['OAI-Sites-Authorization'],'Bearer '+token)
+            with patch.object(r,'http',return_value=(b'0000ftyp00000000',{},200)) as media:
+                portal.media('d215cdf8-426e-48c9-a032-fa4c84f1c3c8')
+                self.assertEqual(media.call_args.kwargs['headers']['OAI-Sites-Authorization'],'Bearer '+token)
+            response={'status':'completed','output':[{'type':'message','content':[{'type':'output_text','text':'Original script'}]}],'usage':{'total_tokens':20}}
+            with patch.object(r,'json_http',return_value=(response,{},200)) as provider:
+                r.run_model(context('draft'))
+                self.assertNotIn('OAI-Sites-Authorization',provider.call_args.kwargs['headers'])
+    def test_malformed_sites_tokens_fail_without_exposing_value(self):
+        for token in ['private-sentinel-token\r\nInjected: yes','private sentinel token','private-sentinel-😀']:
+            with patch.dict(os.environ,{'SITES_API_TOKEN':token},clear=True):
+                with self.assertRaises(r.RuntimeFailure) as failure:r.Portal('https://portal.example','cs_'+'1'*64)
+                self.assertNotIn('private-sentinel',str(failure.exception))
+        with patch.dict(os.environ,{'SITES_API_TOKEN':'fixture-sites-token-123456'},clear=True):
+            with self.assertRaises(r.RuntimeFailure):r.Portal('http://localhost:5173','cs_'+'1'*64)
+    def test_http_header_configuration_errors_are_redacted(self):
+        sentinel='private-header-sentinel'
+        with patch.object(r.HTTP,'open',side_effect=ValueError('Invalid header value '+sentinel)):
+            with self.assertRaises(r.RuntimeFailure) as failure:r.http('https://portal.example')
+            self.assertNotIn(sentinel,str(failure.exception))
     def test_bad_worker_key_rejected(self):
         with self.assertRaises(r.RuntimeFailure):r.Portal('https://example.com','password')
     def test_missing_openai_key_fails_closed(self):

@@ -45,6 +45,9 @@ def http(url: str, *, method="GET", body=None, headers=None, timeout=90):
     except urllib.error.HTTPError as e:
         # Never expose URLs, auth headers or provider response bodies in logs/UI.
         raise RuntimeFailure(f"Provider returned HTTP {e.code}; check access, quota and configuration") from None
+    except ValueError:
+        # http.client includes raw header values in malformed-header errors.
+        raise RuntimeFailure("Invalid request configuration; check endpoint and credentials") from None
     except (urllib.error.URLError, TimeoutError, OSError):
         raise RuntimeFailure("Provider connection failed or timed out") from None
 
@@ -122,6 +125,11 @@ class Portal:
         if not re.fullmatch(r"cs_[a-f0-9]{64}", key): raise RuntimeFailure("Invalid worker key format")
         self.url = url.rstrip("/")
         self.headers = {"Authorization":"Bearer " + key}
+        sites_token = os.environ.get("SITES_API_TOKEN", "")
+        if sites_token:
+            if parsed.scheme != "https" or not re.fullmatch(r"[A-Za-z0-9._~+/=-]{16,4096}", sites_token):
+                raise RuntimeFailure("SITES_API_TOKEN requires HTTPS and a valid bearer token without whitespace")
+            self.headers["OAI-Sites-Authorization"] = "Bearer " + sites_token
         # Optional supported reverse-proxy service credentials. No browser cookies.
         if os.environ.get("CF_ACCESS_CLIENT_ID") and os.environ.get("CF_ACCESS_CLIENT_SECRET"):
             self.headers.update({"CF-Access-Client-Id":os.environ["CF_ACCESS_CLIENT_ID"], "CF-Access-Client-Secret":os.environ["CF_ACCESS_CLIENT_SECRET"]})
@@ -259,5 +267,6 @@ def main():
         signal.signal(signal.SIGTERM,lambda *_:STOP.set());signal.signal(signal.SIGINT,lambda *_:STOP.set())
         worker.run(concurrency,args.once)
     except (RuntimeFailure,ValueError) as e:
-        print(json.dumps({"event":"startup_failed","message":str(e)}),flush=True);raise SystemExit(1)
+        message = str(e) if isinstance(e, RuntimeFailure) else "Invalid worker configuration"
+        print(json.dumps({"event":"startup_failed","message":message}),flush=True);raise SystemExit(1)
 if __name__=="__main__": main()

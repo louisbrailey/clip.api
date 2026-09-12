@@ -41,11 +41,11 @@ Schedule/account/studio/workspace pauses hold future generation and waiting task
 
 ## Worker setup
 
-Read [the operating guide](docs/OPERATIONS.md) before enabling live execution. The browser portal is private, and its sign-in gateway may reject headless worker traffic even when a Constellation worker key is valid. That connection must be provisioned through a supported machine-access path. The Docker file does not solve gateway access.
+Read [the operating guide](docs/OPERATIONS.md) before enabling live execution. The browser portal is private. For the existing Sites deployment, use its supported machine-access bearer token as `SITES_API_TOKEN`, alongside the separate scoped `CONSTELLATION_WORKER_KEY`. A read-only check of the published portal verified gateway passage and rejection of an invalid application key; authenticated job execution remains to be activated. A custom ingress is an alternative, not required for this Sites connection.
 
-1. Configure an authenticated control endpoint with the correct D1/R2 resources.
+1. Set `CONSTELLATION_URL` to the exact private portal origin and configure its existing `SITES_API_TOKEN`. This token is sent only to that configured portal, including media requests. Do not use a token belonging to another site.
 2. In **Controls & setup**, create a worker key. Store it in your secret manager. Only its hash is retained by the portal.
-3. Copy `.env.worker.example` to ignored `.env.worker` and fill the URL, worker key, OpenAI key, and any required OAuth configuration. Never paste provider secrets into the account registry.
+3. Complete the ignored `.env.worker` file, or copy `.env.worker.example` for a new installation, with the URL, Sites token, worker key, OpenAI key, and required OAuth configuration. Never paste provider secrets into the account registry.
 4. Start the worker using Docker Compose:
 
 ```sh
@@ -94,9 +94,10 @@ After generating `outputs/ambient-pink-noise.mp4` with a 10-second render and st
 ```sh
 python3 tests/integration.py
 python3 tests/integration_schedules.py
+python3 tests/integration_machine.py
 ```
 
-The integration test is hardcoded to loopback. It creates test records, rotates and revokes the local test identity's worker key, and exercises simulated publication receipts. Never adapt it to a production account. Reset only disposable local test state if rerunning. The recurring release passes 59 worker/queue/recurrence tests, 42 existing HTTP checks and 41 recurrence HTTP checks; see [verification evidence](docs/VERIFICATION.md). A disposable state directory can be passed to `node scripts/migrate-local.mjs /absolute/disposable/path` and selected when starting development with `CONSTELLATION_LOCAL_STATE=/absolute/disposable/path npm run dev`. Use a new directory for each full integration run.
+The integration test is hardcoded to loopback. It creates test records, rotates and revokes the local test identity's worker key, and exercises simulated publication receipts. Never adapt it to a production account. Reset only disposable local test state if rerunning. The release passes 62 worker/queue/recurrence tests, 42 existing HTTP checks, 41 recurrence HTTP checks and 5 local redirect checks; see [verification evidence](docs/VERIFICATION.md). A disposable state directory can be passed to `node scripts/migrate-local.mjs /absolute/disposable/path` and selected when starting development with `CONSTELLATION_LOCAL_STATE=/absolute/disposable/path npm run dev`. Use a new directory for each full integration run.
 
 ## Operating boundaries
 
