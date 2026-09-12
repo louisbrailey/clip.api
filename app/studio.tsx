@@ -173,6 +173,8 @@ function ControlRoom({ displayName }: { displayName: string }) {
   const [tab, setTab] = useState("network"),
     [publishAccount, setPublishAccount] = useState<AccountChoice | null>(null),
     [caption, setCaption] = useState(""),
+    [renderRequest, setRenderRequest] = useState(""),
+    [renderStart, setRenderStart] = useState(0),
     [modal, setModal] = useState<string | null>(null),
     [job, setJob] = useState<Job | null>(null),
     [schedule, setSchedule] = useState<Schedule | null>(null),
@@ -238,6 +240,13 @@ function ControlRoom({ displayName }: { displayName: string }) {
       body.paused = f.get("paused") === "on";
       if (v.revision) body.revision = Number(v.revision);
     }
+    if (action === "ambient-render") {
+      body.seconds = Number(v.seconds);
+      body.approved = f.get("approved") === "on";
+      body.scheduled = v.scheduled
+        ? new Date(String(v.scheduled)).getTime()
+        : renderStart;
+    }
     if (action === "account") {
       body.authorized = f.get("authorized") === "on";
       body.daily_limit = Number(v.daily_limit);
@@ -255,7 +264,8 @@ function ControlRoom({ displayName }: { displayName: string }) {
     );
     if (r) {
       setModal(null);
-      if (action === "workflow" || action === "publish") navigate("queue");
+      if (["workflow", "publish", "ambient-render"].includes(action))
+        navigate("queue");
       if (action === "schedule") navigate("schedules");
     }
   }
@@ -802,17 +812,28 @@ function ControlRoom({ displayName }: { displayName: string }) {
                         or verified public-domain material.
                       </p>
                     </div>
-                    <Button
-                      variant="outline"
-                      disabled={!s.assets.length || !s.account_total}
-                      onClick={() => {
-                        setPublishAccount(null);
-                        setCaption("");
-                        setModal("publish");
-                      }}
-                    >
-                      <ArrowUpRight size={15} /> Schedule publication
-                    </Button>
+                    <div className="button-row">
+                      <Button
+                        onClick={() => {
+                          setRenderRequest(crypto.randomUUID());
+                          setRenderStart(Date.now());
+                          setModal("render");
+                        }}
+                      >
+                        <Film size={15} /> Create ambient video
+                      </Button>
+                      <Button
+                        variant="outline"
+                        disabled={!s.assets.length || !s.account_total}
+                        onClick={() => {
+                          setPublishAccount(null);
+                          setCaption("");
+                          setModal("publish");
+                        }}
+                      >
+                        <ArrowUpRight size={15} /> Schedule publication
+                      </Button>
+                    </div>
                   </div>
                   <SearchBar
                     key={tab}
@@ -854,6 +875,8 @@ function ControlRoom({ displayName }: { displayName: string }) {
                                     rights: a.rights,
                                     evidence: a.evidence,
                                     expires: a.expires,
+                                    sha256: a.sha256,
+                                    source_job: a.source_job,
                                     asset_id: a.id,
                                   })
                                 }
@@ -869,7 +892,7 @@ function ControlRoom({ displayName }: { displayName: string }) {
                     <Empty
                       icon={<Film />}
                       title="Give your studio something to work with"
-                      text="Upload source media and record its provenance. A bundled local renderer can also create original ambient videos."
+                      text="Upload source media or queue an original ambient video. Generated videos appear here when your worker finishes."
                       action={
                         <Button onClick={() => setModal("upload")}>
                           <Upload size={15} /> Add media
@@ -1166,7 +1189,9 @@ function ControlRoom({ displayName }: { displayName: string }) {
                     ? "Register an authorized account"
                     : modal === "upload"
                       ? "Add source media"
-                      : "Schedule a reviewed video publication"}
+                      : modal === "render"
+                        ? "Create an original ambient video"
+                        : "Schedule a reviewed video publication"}
             </DialogTitle>
             <DialogDescription>
               {modal === "schedule"
@@ -1177,7 +1202,9 @@ function ControlRoom({ displayName }: { displayName: string }) {
                     ? "This records your account. Configure credentials separately on the worker."
                     : modal === "upload"
                       ? "Attach the source video and record your right to publish it."
-                      : "Review the exact title, description, account and source before approving the upload."}
+                      : modal === "render"
+                        ? "Choose the sound, color and duration for an original video in your private library."
+                        : "Review the exact title, description, account and source before approving the upload."}
             </DialogDescription>
           </DialogHeader>
           {modal === "schedule" && (
@@ -1342,6 +1369,68 @@ function ControlRoom({ displayName }: { displayName: string }) {
               </Button>
             </form>
           )}
+          {modal === "render" && (
+            <form
+              className="form"
+              onSubmit={(e) => submit(e, "ambient-render")}
+            >
+              <input type="hidden" name="request_id" value={renderRequest} />
+              <Field label="Video name">
+                <Input
+                  name="title"
+                  minLength={3}
+                  maxLength={160}
+                  required
+                  placeholder="Rainy evening wind-down"
+                />
+              </Field>
+              <Field label="Noise texture">
+                <select name="noise" defaultValue="pink">
+                  <option value="pink">
+                    Pink · balanced, softer high frequencies
+                  </option>
+                  <option value="white">White · steady broadband sound</option>
+                  <option value="brown">Brown · deeper sound</option>
+                </select>
+              </Field>
+              <Field label="Visual color">
+                <select name="theme" defaultValue="night">
+                  <option value="night">Night · dark slate</option>
+                  <option value="ocean">Ocean · deep blue</option>
+                  <option value="forest">Forest · deep green</option>
+                </select>
+              </Field>
+              <Field
+                label="Duration in seconds"
+                hint="10–300 seconds. A portrait video with gently faded original noise."
+              >
+                <Input
+                  type="number"
+                  name="seconds"
+                  min={10}
+                  max={300}
+                  defaultValue={60}
+                  required
+                />
+              </Field>
+              <Field label="Start time (local, optional)">
+                <Input type="datetime-local" name="scheduled" />
+              </Field>
+              <div className="inset-note">
+                Your connected worker creates the video and saves it privately
+                in this library. This uses local rendering, with no model call.
+                Ambient studio and editorial-agent pauses apply. Publication
+                requires a separate review and approval.
+              </div>
+              <label className="checkbox">
+                <input name="approved" type="checkbox" required />
+                <span>I approve this original-video recipe for rendering.</span>
+              </label>
+              <Button type="submit" disabled={busy}>
+                Queue original video
+              </Button>
+            </form>
+          )}
           {modal === "publish" && s && (
             <form className="form" onSubmit={(e) => submit(e, "publish")}>
               <AccountPicker onAccountChange={setPublishAccount} />
@@ -1502,8 +1591,21 @@ function ControlRoom({ displayName }: { displayName: string }) {
               )}
               {currentJob.receipt && (
                 <div className="inset-note">
-                  Provider receipt: {currentJob.receipt}
+                  {currentJob.kind === "render"
+                    ? "Library receipt"
+                    : "Provider receipt"}
+                  : {currentJob.receipt}
                 </div>
+              )}
+              {currentJob.kind === "render" && currentJob.asset && (
+                <a
+                  href={`/api/assets/${currentJob.asset}`}
+                  className="asset-actions"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Open generated video
+                </a>
               )}
               {currentJob.error && (
                 <p className="form-error">{currentJob.error}</p>

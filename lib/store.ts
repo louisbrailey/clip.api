@@ -261,7 +261,7 @@ export async function claim(owner: string, mode: string, token: string) {
   // The budget, inherited pause and concurrency checks are inside the atomic claim.
   return sql(
     `UPDATE jobs SET status='running',lease=?,lease_until=?,attempts=attempts+1,
-    reserve=CASE WHEN mode='live' AND kind!='publish' THEN 20000 ELSE 0 END,billed_day=?
+    reserve=CASE WHEN mode='live' AND kind IN ('plan','draft') THEN 20000 ELSE 0 END,billed_day=?
     WHERE owner=? AND NOT EXISTS(SELECT 1 FROM jobs previous WHERE previous.owner=jobs.owner AND previous.lease=?) AND id=(
       SELECT j.id FROM jobs j JOIN settings s ON s.owner=j.owner JOIN agents a ON a.owner=j.owner AND a.id=j.agent
       WHERE j.owner=? AND j.mode=? AND j.status='queued' AND j.scheduled<=? AND j.attempts<3 AND s.paused=0
@@ -272,7 +272,8 @@ export async function claim(owner: string, mode: string, token: string) {
       AND NOT EXISTS (WITH RECURSIVE tree AS (SELECT id,parent,paused,concurrency,archived FROM agents WHERE owner=j.owner AND id=j.agent UNION ALL SELECT p.id,p.parent,p.paused,p.concurrency,p.archived FROM agents p JOIN tree t ON p.id=t.parent WHERE p.owner=j.owner) SELECT 1 FROM tree WHERE paused=1 OR archived=1)
       AND (SELECT COUNT(*) FROM jobs r WHERE r.owner=j.owner AND r.status='running') < s.concurrency
       AND (SELECT COUNT(*) FROM jobs r WHERE r.owner=j.owner AND r.status='running' AND r.agent=j.agent) < a.concurrency
-      AND (j.mode='rehearsal' OR j.kind='publish' OR (SELECT COALESCE(SUM(tokens),0) FROM usage b WHERE b.owner=j.owner AND b.day=?)+(SELECT COALESCE(SUM(reserve),0) FROM jobs b WHERE b.owner=j.owner)+20000 <= s.daily_tokens)
+      AND (j.mode='rehearsal' OR j.kind IN ('publish','render') OR (SELECT COALESCE(SUM(tokens),0) FROM usage b WHERE b.owner=j.owner AND b.day=?)+(SELECT COALESCE(SUM(reserve),0) FROM jobs b WHERE b.owner=j.owner)+20000 <= s.daily_tokens)
+      AND (j.kind!='render' OR (j.approved=1 AND j.lane='ambient' AND j.render_spec IS NOT NULL))
       AND (j.kind!='publish' OR (j.approved=1 AND EXISTS(SELECT 1 FROM accounts c JOIN assets m ON m.id=j.asset AND m.owner=j.owner WHERE c.id=j.account AND c.owner=j.owner AND c.authorized=1 AND c.paused=0 AND (m.expires IS NULL OR m.expires>?) AND m.rights IN ('original','licensed','public-domain')
         AND NOT EXISTS(SELECT 1 FROM jobs p WHERE p.owner=j.owner AND p.account=j.account AND p.status IN ('running','uncertain'))
         AND (SELECT COUNT(*) FROM jobs p WHERE p.owner=j.owner AND p.account=j.account AND p.kind='publish' AND p.status='succeeded' AND p.billed_day=?) < c.daily_limit)))

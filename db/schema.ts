@@ -77,6 +77,8 @@ export const assets = sqliteTable(
     owner: text().notNull(),
     name: text().notNull(),
     object_key: text().notNull(),
+    source_job: text(),
+    sha256: text(),
     mime: text().notNull(),
     size: integer().notNull(),
     rights: text().notNull(),
@@ -84,7 +86,10 @@ export const assets = sqliteTable(
     expires: integer(),
     created: integer().notNull(),
   },
-  (t) => [index("assets_owner_created").on(t.owner, t.created)],
+  (t) => [
+    index("assets_owner_created").on(t.owner, t.created),
+    uniqueIndex("assets_source_job").on(t.owner, t.source_job),
+  ],
 );
 export const jobs = sqliteTable(
   "jobs",
@@ -117,6 +122,7 @@ export const jobs = sqliteTable(
     completion_hash: text(),
     approved: integer().notNull().default(0),
     made_with_ai: integer().notNull().default(0),
+    render_spec: text(),
     schedule_id: text(),
     occurrence: integer(),
   },

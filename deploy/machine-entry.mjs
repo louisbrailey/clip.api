@@ -7,7 +7,8 @@ export default {
   async fetch(request, env, context) {
     const url = new URL(request.url);
     const permitted =
-      (url.pathname === "/api/control" && request.method === "POST") ||
+      (["/api/control", "/api/render"].includes(url.pathname) &&
+        request.method === "POST") ||
       (/^\/api\/assets\/[a-f0-9-]{36}$/.test(url.pathname) &&
         request.method === "GET");
     if (

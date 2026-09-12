@@ -14,6 +14,9 @@ from pathlib import Path
 import random
 import re
 import signal
+import subprocess
+import sys
+import tempfile
 import threading
 import time
 import urllib.error
@@ -147,6 +150,14 @@ class Portal:
         data, _, _ = http(self.url + "/api/assets/" + asset, headers=self.headers)
         if len(data) > 52428800 or data[4:8] != b"ftyp": raise RuntimeFailure("Invalid or oversized MP4 source")
         return data
+
+    def render_output(self,job,lease,data,digest):
+        if not re.fullmatch(r'[a-f0-9-]{36}',job) or not re.fullmatch(r'[a-f0-9-]{36}',lease) or not re.fullmatch(r'[a-f0-9]{64}',digest) or len(data)>16*1024*1024:
+            raise RuntimeFailure('Invalid generated media transfer')
+        boundary='constellation-'+uuid.uuid4().hex
+        body=(f'--{boundary}\r\nContent-Disposition: form-data; name="sha256"\r\n\r\n{digest}\r\n--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="original.mp4"\r\nContent-Type: video/mp4\r\n\r\n'.encode()+data+f'\r\n--{boundary}--\r\n'.encode())
+        headers={**self.headers,'Content-Type':'multipart/form-data; boundary='+boundary,'X-Render-Job':job,'X-Render-Lease':lease}
+        return json_http(self.url+'/api/render',method='POST',body=body,headers=headers,timeout=90)[0]
 
 def youtube_token(account):
     ref = account.get("credential_ref", "")
@@ -422,6 +433,71 @@ def publish(context, portal, lease_valid, journal):
     raise RuntimeFailure('This platform requires a manual publishing handoff')
 
 
+RENDER_SLOT = threading.Semaphore(1)
+
+def render_spec(value):
+    try: spec=json.loads(value)
+    except (ValueError,TypeError): raise RuntimeFailure('Invalid ambient render recipe') from None
+    if not isinstance(spec,dict) or set(spec)!={'seconds','noise','theme','seed'} or type(spec.get('seconds')) is not int or not 10<=spec['seconds']<=300 or spec.get('noise') not in ('white','pink','brown') or spec.get('theme') not in ('night','ocean','forest') or type(spec.get('seed')) is not int or not 1<=spec['seed']<=2147483647:
+        raise RuntimeFailure('Invalid ambient render recipe')
+    return spec
+
+def render_process(output,spec,lease_valid):
+    """Only an allowlisted recipe reaches this fixed renderer. No model commands."""
+    command=[sys.executable,str(Path(__file__).with_name('render.py')),str(output),'--seconds',str(spec['seconds']),'--noise',spec['noise'],'--theme',spec['theme'],'--seed',str(spec['seed'])]
+    environment={k:os.environ[k] for k in ('PATH','SYSTEMROOT','FFMPEG_BIN') if k in os.environ}
+    process=subprocess.Popen(command,stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True,env=environment)
+    deadline=time.monotonic()+max(120,spec['seconds']*4)
+    try:
+        while process.poll() is None:
+            if not lease_valid():raise RuntimeFailure('Render lease lost; local media generation stopped')
+            if time.monotonic()>deadline:raise RuntimeFailure('Ambient rendering exceeded its time limit')
+            time.sleep(.25)
+        if process.returncode:raise RuntimeFailure('Ambient renderer failed; verify FFmpeg is installed on the worker')
+    finally:
+        if process.poll() is None:
+            try:os.killpg(process.pid,signal.SIGTERM)
+            except ProcessLookupError:pass
+            try:process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                try:os.killpg(process.pid,signal.SIGKILL)
+                except ProcessLookupError:pass
+                process.wait(timeout=3)
+
+def render_ambient(context,portal,lease_valid,journal):
+    j=context['job']
+    if j.get('kind')!='render' or j.get('mode')!='live' or j.get('approved')!=1 or j.get('lane')!='ambient' or not re.fullmatch(r'[a-f0-9-]{36}',j.get('id','')):
+        raise RuntimeFailure('Ambient rendering requires an approved original-media task')
+    spec=render_spec(j.get('render_spec'))
+    while not RENDER_SLOT.acquire(timeout=.5):
+        if not lease_valid():raise RuntimeFailure('Render lease lost while waiting for the local renderer')
+    try:
+        if not lease_valid():raise RuntimeFailure('Render lease is no longer valid')
+        saved=portal.call('render-preflight',id=j['id'],lease=j['lease'])
+        if not saved.get('asset'):
+            with tempfile.TemporaryDirectory(prefix='constellation-render-') as directory:
+                output=Path(directory)/'original.mp4'
+                render_process(output,spec,lease_valid)
+                if not lease_valid():raise RuntimeFailure('Render lease lost before media transfer')
+                if not output.is_file() or not 12<=output.stat().st_size<=16*1024*1024:
+                    raise RuntimeFailure('Rendered output is missing or exceeds 16 MiB')
+                data=output.read_bytes();digest=hashlib.sha256(data).hexdigest()
+                if data[4:8]!=b'ftyp':raise RuntimeFailure('Renderer did not create a valid MP4 container')
+                provenance=json.loads(output.with_suffix('.rights.json').read_text())
+                if provenance.get('rights')!='original' or provenance.get('sha256')!=digest or provenance.get('duration_seconds')!=spec['seconds']:
+                    raise RuntimeFailure('Rendered output provenance did not match its recipe')
+                # Recheck controls after rendering and again transactionally when saving the asset.
+                portal.call('render-preflight',id=j['id'],lease=j['lease'])
+                if not lease_valid():raise RuntimeFailure('Render lease lost before media transfer')
+                saved=portal.render_output(j['id'],j['lease'],data,digest)
+        asset=saved.get('asset');digest=saved.get('sha256')
+        if not isinstance(asset,str) or not re.fullmatch(r'[a-f0-9-]{36}',asset) or not isinstance(digest,str) or not re.fullmatch(r'[a-f0-9]{64}',digest):
+            raise RuntimeFailure('Generated media receipt is invalid; retry to recover the saved library asset')
+        # Portal binding is authoritative across attempts. Never trust an older lease's local receipt.
+        return {'status':'succeeded','result':f'Original {spec["noise"]} noise video saved in the content library: {spec["seconds"]} seconds, {spec["theme"]} visual. SHA-256: {digest}. Review the video and approve publication separately.','receipt':'asset:'+asset,'tokens':0}
+    finally:RENDER_SLOT.release()
+
+
 class Journal:
     def __init__(self, path):
         self.path = Path(path); self.path.mkdir(parents=True,exist_ok=True,mode=0o700)
@@ -456,7 +532,9 @@ class Worker:
         try:
             # No mock path is accepted here. Rehearsals execute only in the portal.
             if j["mode"]!="live": raise RuntimeFailure("Live worker received a rehearsal task")
-            result=publish(context,self.portal,healthy.is_set,self.journal) if j["kind"]=="publish" else run_model(context)
+            if j["kind"]=="publish": result=publish(context,self.portal,healthy.is_set,self.journal)
+            elif j["kind"]=="render": result=render_ambient(context,self.portal,healthy.is_set,self.journal)
+            else: result=run_model(context)
         except UncertainUpload as e: result={"status":"uncertain","error":str(e)}
         except RuntimeFailure as e: result={"status":"failed","error":str(e)}
         except Exception: result={"status":"uncertain" if j["kind"]=="publish" else "failed","error":"Worker execution failed; inspect redacted runtime logs"}

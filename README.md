@@ -14,7 +14,7 @@ This is a functioning first release with production-oriented queue safeguards. *
 - Original or licensed MP4 uploads to private R2 storage with provenance records and rights expiry.
 - YouTube OAuth refresh, channel-identity verification, resumable-session upload, private visibility, final preflight and provider receipts. Network-ambiguous uploads become `uncertain` and cannot be replayed automatically.
 - X user-identity verification, chunked video upload, processing checks and exact approved captions. X publication requires separate audience approval because a post may be public under the account’s settings. Refresh tokens persist privately across restarts; ambiguous post outcomes are held for review. Provider calls are fixture-validated only.
-- Original ambient-noise video generator and local licensed-clip trimming via FFmpeg.
+- Queued original ambient-video production with an approved 10–300-second noise/color recipe, private library output and SHA-256 provenance. The worker performs actual FFmpeg rendering without model calls. Local licensed-clip trimming remains available separately.
 - Rehearsals explicitly labeled as deterministic fixtures; they call no models and publish nothing.
 
 ## Local start
@@ -80,6 +80,12 @@ Register the account’s numeric X user ID and a credential reference, then supp
 
 ## Rendering media
 
+In **Content library**, choose **Create ambient video**. Name the video, choose white/pink/brown noise, a night/ocean/forest color, duration and optional start time, then approve the recipe. A connected worker creates a portrait MP4 and saves it directly in the library. **Open generated video** is available in its task details, and the library exports the rights record and digest. This controlled rendering task uses the built-in Ambient editorial agent’s queue and inherited pauses; it does not invoke Astra or a specialist model. Recurring model workflows still produce text artifacts, and scheduling a render is currently a separate one-time action.
+
+No OpenAI or social OAuth key is needed for rendering alone; the worker still needs the portal’s machine credentials and FFmpeg. Each worker process runs at most one render at a time, within its overall task cap. The Docker definition now installs FFmpeg, but container execution remains unverified here. Lost media-upload responses recover the canonical library asset on a bounded retry. The original recipe is immutable; reopening the form creates a new request. Publishing remains separately approved.
+
+For a standalone local render:
+
 Install FFmpeg, or use the optional pinned helper package:
 
 ```sh
@@ -113,9 +119,11 @@ python3 tests/integration_schedules.py
 python3 tests/integration_machine.py
 python3 tests/integration_network.py
 python3 tests/integration_x.py
+# FFmpeg must be on PATH, or set FFMPEG_BIN to its absolute executable path.
+python3 tests/integration_render.py
 ```
 
-The integration test is hardcoded to loopback. It creates test records, rotates and revokes the local test identity's worker key, and exercises simulated publication receipts. Never adapt it to a production account. Reset only disposable local test state if rerunning. The X adapter release passes 105 worker/SQL tests, 3 official-parser tests and 154 local HTTP checks (42 workflow/media, 41 recurrence, 5 redirects, 46 network controls and 20 X approvals/recovery checks); see [verification evidence](docs/VERIFICATION.md). A disposable state directory can be passed to `node scripts/migrate-local.mjs /absolute/disposable/path` and selected when starting development with `CONSTELLATION_LOCAL_STATE=/absolute/disposable/path npm run dev`. Use a new directory for each full integration run.
+The integration test is hardcoded to loopback. It creates test records, rotates and revokes the local test identity's worker key, and exercises simulated publication receipts. Never adapt it to a production account. Reset only disposable local test state if rerunning. The queued-render release passes 125 worker/SQL/process tests, 3 official-parser tests and 181 local HTTP checks (42 workflow/media, 41 recurrence, 5 redirects, 46 network controls, 20 X checks and 27 render checks); see [verification evidence](docs/VERIFICATION.md). A disposable state directory can be passed to `node scripts/migrate-local.mjs /absolute/disposable/path` and selected when starting development with `CONSTELLATION_LOCAL_STATE=/absolute/disposable/path npm run dev`. Use a new directory for each full integration run.
 
 ## Operating boundaries
 

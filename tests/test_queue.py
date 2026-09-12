@@ -81,6 +81,17 @@ class QueueTests(unittest.TestCase):
         query=re.search(r'sql\(\s*"(SELECT agent,status,COUNT\(\*\) AS n FROM jobs WHERE owner=.*?GROUP BY agent,status)",\s*owner',STORE).group(1)
         rows=self.db.execute(query,('alice',)).fetchall()
         self.assertEqual(next(row['n'] for row in rows if row['status']=='running'),1)
+    def test_render_uses_no_model_budget(self):
+        self.db.execute("INSERT INTO usage VALUES('spent','alice',?,100000)",(self.day,))
+        self.job('render',kind='render',approved=1,render_spec='{}')
+        result=self.claim();self.assertEqual(result['kind'],'render');self.assertEqual(result['reserve'],0)
+    def test_unapproved_render_cannot_be_claimed(self):
+        self.job('render',kind='render',render_spec='{}');self.assertIsNone(self.claim())
+    def test_render_output_binding_is_unique(self):
+        values=('asset-one','alice','video','object-one','video/mp4',100,'original','Generated locally',self.now,'render-job')
+        statement='INSERT INTO assets(id,owner,name,object_key,mime,size,rights,evidence,created,source_job) VALUES(?,?,?,?,?,?,?,?,?,?)'
+        self.db.execute(statement,values)
+        with self.assertRaises(sqlite3.IntegrityError):self.db.execute(statement,('asset-two',)+values[1:])
     def test_ten_thousand_account_registry(self):
         self.db.executemany('INSERT INTO accounts(id,owner,platform,handle,lane,external_id,credential_ref,authorized,created) VALUES(?,?,?,?,?,?,?,?,?)',((str(i),'alice','youtube','@account'+str(i),'ambient','external'+str(i),'YT_REFERENCE',1,self.now) for i in range(10000)))
         self.assertEqual(self.db.execute("SELECT COUNT(*) FROM accounts WHERE owner='alice'").fetchone()[0],10000)

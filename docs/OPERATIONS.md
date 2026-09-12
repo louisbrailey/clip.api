@@ -40,6 +40,20 @@ The worker initializes media, sends 4 MiB chunks as base64 JSON, finalizes, chec
 
 Post creation has no assumed idempotency contract. A lost response, unclear provider result or expired publishing lease becomes uncertain and cannot automatically publish again. A known post ID is retained even if an intermediate journal write fails; the worker then attempts to persist and report its completion. A crash with only a provider receipt checkpoint may require manual reconciliation because it lacks the completion lease envelope. Inspect the real account and record the verified receipt in the portal. A definite rejected preparation/post task requires fixing its cause and a fresh approval; it is not automatically retried. X API charges and quotas are separate from the portal’s model-token allowance.
 
+## Operate queued ambient rendering
+
+The **Create ambient video** form queues a fixed original-media recipe under the built-in Ambient editorial agent. Supported recipes are white, pink or brown noise, three plain background colors, a server-generated seed and 10–300 seconds. Every video has a 720×1280 portrait frame and gently faded synthesized audio. No source path, remote URL, shell text, arbitrary filter or model-generated command is accepted. The one-time task may have a future start; recurring schedules and automatic script-to-speech/video generation are separate capabilities and do not yet invoke this renderer.
+
+Install FFmpeg on the worker, or set the operator-controlled `FFMPEG_BIN` path. The Dockerfile includes the distribution’s FFmpeg package; Docker startup remains to be validated on the chosen host. The render subprocess receives only a minimal executable environment, without model/social/portal secrets. One render runs per worker process, with a single encoder thread, a bounded duration-dependent timeout and a 16 MiB output cap. Rendering consumes worker CPU and storage but reserves zero model tokens. Other workers remain subject to workspace and per-agent task limits.
+
+The worker checks its live lease and portal controls before rendering and before uploading. A lost heartbeat stops the process group. Workspace or inherited agent pauses hold new claims and reject subsequent render preflight/media registration; they may allow the already-running local encode to finish. Shutdown uses the existing graceful drain; forced termination discards temporary files and a later leased attempt may rerender.
+
+Generated media uses a separate machine endpoint scoped to the job and current lease. The server computes the digest, derives original-media provenance from the saved recipe and selects a unique asset for that job. Each upload attempt has its own private object key, so a stale or duplicate attempt cannot overwrite the winner. Asset insertion, job binding and audit are transactional; completion additionally requires that binding. A lost transfer response can safely recover the saved asset on retry. An uncertain database response may leave an unreferenced private object; automated orphan cleanup/retention remains outstanding. Never delete a potentially committed object merely because a request timed out.
+
+Inspect the video’s playback, audio, duration and rights record in the library, then approve a separate publication. **Retry task** is available for failed renders within the three-attempt limit; a retry with a canonical saved asset skips encoding/upload. The local end-to-end test produced and fully decoded `outputs/ambient-queued-ocean.mp4`; it did not activate the hosted worker.
+
+The procedural audio uses FFmpeg’s noise source with fixed recipe parameters. [FFmpeg noise-source documentation](https://ffmpeg.org/ffmpeg-filters.html#anoisesrc).
+
 ## Pauses, failures and receipts
 
 - **Pause studio:** stops new dispatch. A request already accepted by a provider can finish.

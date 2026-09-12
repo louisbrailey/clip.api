@@ -181,6 +181,7 @@ export type Job = {
   receipt: string;
   approved: number;
   made_with_ai: number;
+  render_spec: string | null;
   schedule_id: string | null;
   occurrence: number | null;
 };
@@ -220,6 +221,8 @@ export type Schedule = {
   pending_occurrence: number | null;
 };
 export type Asset = {
+  source_job: string | null;
+  sha256: string | null;
   id: string;
   name: string;
   rights: string;

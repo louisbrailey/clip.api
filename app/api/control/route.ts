@@ -1,3 +1,4 @@
+import { ambientSpec, renderPreflight } from "../../../lib/render";
 import { xCaption } from "../../../lib/x-text";
 import { z } from "zod";
 import { updateAgent } from "../../../lib/network";
@@ -114,6 +115,15 @@ async function complete(owner: string, body: Record<string, unknown>) {
     throw new ApiError("Astra must return a valid bounded plan");
   if (j.kind === "publish" && v.status === "succeeded" && !v.receipt)
     throw new ApiError("A provider receipt is required");
+  if (
+    j.kind === "render" &&
+    (v.tokens !== 0 ||
+      (v.status === "succeeded" &&
+        (!j.asset || v.receipt !== "asset:" + j.asset)))
+  )
+    throw new ApiError(
+      "A saved generated asset and zero model tokens are required",
+    );
   const charge =
     j.mode === "rehearsal"
       ? 0
@@ -228,7 +238,13 @@ export async function POST(request: Request) {
       throw new ApiError("Request too large", 413);
     const body = JSON.parse(raw);
     const action = z.string().parse(body.action);
-    const machineActions = ["claim", "heartbeat", "complete", "preflight"];
+    const machineActions = [
+      "claim",
+      "heartbeat",
+      "complete",
+      "preflight",
+      "render-preflight",
+    ];
     if (machine !== machineActions.includes(action))
       throw new ApiError(
         "This action is not available for this credential",
@@ -266,6 +282,17 @@ export async function POST(request: Request) {
       return response({ ok: true });
     }
     if (action === "complete") return await complete(owner, body);
+    if (action === "render-preflight") {
+      const v = z
+        .object({ id: z.string().uuid(), lease: z.string().uuid() })
+        .parse(body);
+      const { asset } = await renderPreflight(owner, v.id, v.lease);
+      return response({
+        ok: true,
+        asset: asset?.id || null,
+        sha256: asset?.sha256 || null,
+      });
+    }
     if (action === "preflight") {
       const j = await sql(
         "SELECT j.id FROM jobs j JOIN settings s ON s.owner=j.owner JOIN accounts a ON a.id=j.account AND a.owner=j.owner JOIN assets m ON m.id=j.asset AND m.owner=j.owner WHERE j.owner=? AND j.id=? AND j.lease=? AND j.status='running' AND j.lease_until>? AND j.approved=1 AND s.paused=0 AND a.paused=0 AND a.authorized=1 AND (m.expires IS NULL OR m.expires>?) AND NOT EXISTS(WITH RECURSIVE tree AS (SELECT id,parent,paused,archived FROM agents WHERE owner=j.owner AND id=j.agent UNION ALL SELECT p.id,p.parent,p.paused,p.archived FROM agents p JOIN tree t ON p.id=t.parent WHERE p.owner=j.owner) SELECT 1 FROM tree WHERE paused=1 OR archived=1)",
@@ -278,6 +305,68 @@ export async function POST(request: Request) {
       if (!j)
         throw new ApiError("Publishing is paused or no longer authorized", 409);
       return response({ ok: true });
+    }
+    if (action === "ambient-render") {
+      const v = z
+        .object({
+          request_id: z.string().uuid(),
+          title: z.string().trim().min(3).max(160),
+          seconds: ambientSpec.shape.seconds,
+          noise: ambientSpec.shape.noise,
+          theme: ambientSpec.shape.theme,
+          scheduled: z.number().int().nonnegative(),
+          approved: z.literal(true),
+        })
+        .parse(body);
+      const spec = ambientSpec.parse({
+        seconds: v.seconds,
+        noise: v.noise,
+        theme: v.theme,
+        seed: 1 + (crypto.getRandomValues(new Uint32Array(1))[0] % 2147483647),
+      });
+      const saved = await db().batch([
+        sql(
+          "INSERT OR IGNORE INTO jobs(id,owner,agent,title,brief,lane,mode,kind,status,created,scheduled,approved,render_spec) VALUES(?,?,'ambient-editor',?,?,'ambient','live','render','queued',?,?,1,?)",
+          v.request_id,
+          owner,
+          v.title,
+          `Render ${spec.seconds} seconds of original ${spec.noise} noise with the ${spec.theme} visual. Publication requires separate approval.`,
+          now(),
+          v.scheduled,
+          JSON.stringify(spec),
+        ),
+        sql(
+          "INSERT INTO events(id,owner,type,message,job,created) SELECT ?,?,'queued',?,?,? WHERE changes()>0",
+          crypto.randomUUID(),
+          owner,
+          `Queued original ambient video: ${v.title}`,
+          v.request_id,
+          now(),
+        ),
+      ]);
+      if (!saved[0].meta.changes) {
+        const previous = await sql(
+          "SELECT title,scheduled,render_spec FROM jobs WHERE owner=? AND id=? AND kind='render'",
+          owner,
+          v.request_id,
+        ).first<{ title: string; scheduled: number; render_spec: string }>();
+        const recipe = previous
+          ? ambientSpec.parse(JSON.parse(previous.render_spec))
+          : null;
+        if (
+          !previous ||
+          previous.title !== v.title ||
+          previous.scheduled !== v.scheduled ||
+          recipe?.seconds !== v.seconds ||
+          recipe.noise !== v.noise ||
+          recipe.theme !== v.theme
+        )
+          throw new ApiError(
+            "This request already saved a different recipe. Reopen Create ambient video to queue another video.",
+            409,
+          );
+      }
+      return response({ id: v.request_id });
     }
     if (action === "workflow") {
       const v = workflowInput.parse(body);

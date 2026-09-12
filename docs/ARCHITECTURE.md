@@ -12,6 +12,8 @@ flowchart TD
   Astra --> Manifest[Validated manifest: 1–8 tasks]
   Manifest --> Queue
   Worker --> Specialists[Configured studio models]
+  Worker --> Render[Approved original ambient recipe]
+  Render --> Media
   Worker --> Review[Approved immutable upload task]
   Review --> YouTube[Private YouTube upload]
   Review --> X[X video post to approved account audience]
@@ -45,6 +47,16 @@ Browser identity comes from dispatch-owned Sites sign-in. The production boundar
 Worker keys contain 256 random bits; only SHA-256 hashes are stored. They are owner-scoped and limited to claiming, heartbeats, completion, preflight and media retrieval. Keys cannot mutate operator settings, register accounts or read the browser control room. Rotation and revocation are audited. Initial provider grants remain in the worker’s environment. X access and rotated refresh tokens additionally reside in a private directory on the persistent worker volume; they never enter portal records, model context or completion journals. The optional `deploy/machine-entry.mjs` wrapper rejects browser routes and strips browser identity headers for separately provisioned machine ingress. It does not provision that ingress or grant access to Sites-managed storage.
 
 Browser writes require the same origin. Database statements are parameterized. Models have no shell, browser, engagement tools or arbitrary HTTP access. Provider requests use fixed HTTPS endpoints and reject redirects. Upload-session URLs must remain on the expected Google API host. Logs expose error categories rather than secrets or provider response bodies.
+
+## Queued original ambient media
+
+`render` jobs store an immutable `render_spec` containing bounded duration, noise/color enums and a server-generated seed. The operator’s stable request ID makes exact creation replay idempotent; reuse with changed title, recipe or start time fails. These are explicit one-time tasks on `ambient-editor`, rather than model-generated instructions. Model-token reservation applies only to `plan` and `draft`; render tasks still obey global and agent concurrency, due time, inherited pause, leases and three-attempt retry limits.
+
+The worker executes a fixed original-only renderer command in a private temporary directory, without source-file or URL arguments. A semaphore permits one local render, while the existing heartbeat continues during execution. Process-group termination handles lost leases/timeouts. The renderer receives no provider/portal credentials. After MP4/provenance checks, the worker transfers bytes only to the configured portal’s `/api/render` endpoint.
+
+The endpoint accepts only a scoped machine key plus current render job/lease headers. It bounds the request body before multipart parsing, recomputes SHA-256 and derives provenance from the server’s immutable recipe. Each attempt writes a distinct R2 object. A fenced D1 batch chooses one `(owner,source_job)` asset, attaches it to the job and records one media event. Losing attempts delete only their own unselected object; uncertain commit responses are reconciled before deletion. D1 and R2 are not one transaction, so rare orphan cleanup is still operational work.
+
+Render completion requires the server-bound asset receipt and zero model tokens. The portal binding, rather than a possibly stale local journal, decides recovery across attempts. Lease expiry may safely requeue rendering; a new attempt recovers any canonical asset before encoding. A completed render never creates a publishing job or authorizes a public side effect. Generated-media provenance is an attestation from the authorized worker plus an integrity digest, not an independent content-origin detector.
 
 ## X publication recovery
 
