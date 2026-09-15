@@ -31,7 +31,7 @@ def schedule(id):return next(r for r in state()['schedules'] if r['id']==id)
 def pause(id,value):
     r=schedule(id);return action('schedule-pause',id=id,revision=r['revision'],paused=value)
 def edit(id,**changes):
-    body=dict(schedule(id));body["paused"]=bool(body["paused"]);body.update(changes);return action('schedule',**body)
+    body=dict(schedule(id));body["paused"]=bool(body["paused"]);body["render_approved"]=bool(body.get("render_approved",0));body.update(changes);return action('schedule',**body)
 def complete(key,j,plan=False,status='succeeded'):
     body=dict(action='complete',id=j['id'],lease=j['lease'],status=status,tokens=50,result='Fixture original content')
     if plan:body['plan']=[dict(title='Write original script',brief='Write an original meditation for the specified account.',role='writer')]

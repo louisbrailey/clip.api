@@ -198,6 +198,9 @@ export type Account = {
   created: number;
 };
 export type Schedule = {
+  production_kind: "workflow" | "ambient";
+  render_recipe: string | null;
+  render_approved: number;
   id: string;
   account: string;
   title: string;
@@ -274,6 +277,13 @@ export const workflowInput = z.object({
   mode: z.enum(["rehearsal", "live"]),
   scheduled: z.number().int().nonnegative().optional(),
 });
+export const ambientRecipe = z
+  .object({
+    seconds: z.number().int().min(10).max(300),
+    noise: z.enum(["white", "pink", "brown"]),
+    theme: z.enum(["night", "ocean", "forest"]),
+  })
+  .strict();
 export const scheduleInput = z
   .object({
     request_id: z.string().uuid().optional(),
@@ -283,6 +293,9 @@ export const scheduleInput = z
     title: z.string().trim().min(3).max(160),
     brief: z.string().trim().min(15).max(6000),
     mode: z.enum(["rehearsal", "live"]),
+    production_kind: z.enum(["workflow", "ambient"]).default("workflow"),
+    render_recipe: ambientRecipe.nullable().default(null),
+    render_approved: z.boolean().default(false),
     interval_minutes: z.number().int().min(60).max(525600),
     next_run: z.number().int().nonnegative().max(4102444800000),
     max_runs: z.number().int().min(1).max(1000000).nullable(),
@@ -293,6 +306,16 @@ export const scheduleInput = z
     {
       message:
         "Supply a revision for edits or a stable request ID for creation",
+    },
+  )
+  .refine(
+    (v) =>
+      v.production_kind === "ambient"
+        ? v.mode === "live" && v.render_recipe !== null && v.render_approved
+        : v.render_recipe === null && !v.render_approved,
+    {
+      message:
+        "Ambient schedules require an explicitly approved live recipe; model workflows cannot carry render approval",
     },
   );
 export const accountInput = z.object({

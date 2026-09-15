@@ -234,6 +234,17 @@ function ControlRoom({ displayName }: { displayName: string }) {
         ? new Date(String(v.scheduled)).getTime()
         : Date.now();
     if (action === "schedule") {
+      body.production_kind = v.production_kind || "workflow";
+      body.render_recipe =
+        v.production_kind === "ambient"
+          ? {
+              seconds: Number(v.render_seconds),
+              noise: v.render_noise,
+              theme: v.render_theme,
+            }
+          : null;
+      body.render_approved =
+        v.production_kind === "ambient" && f.get("render_approved") === "on";
       body.interval_minutes = Number(v.interval_minutes);
       body.next_run = new Date(String(v.next_run)).getTime();
       body.max_runs = v.max_runs ? Number(v.max_runs) : null;
@@ -1213,7 +1224,13 @@ function ControlRoom({ displayName }: { displayName: string }) {
               busy={busy}
               onSubmit={(e) => submit(e, "schedule")}
             >
-              <AccountPicker purpose="production" />
+              {(kind) => (
+                <AccountPicker
+                  key={kind}
+                  purpose="production"
+                  lane={kind === "ambient" ? "ambient" : undefined}
+                />
+              )}
             </ScheduleForm>
           )}
           {modal === "workflow" && (

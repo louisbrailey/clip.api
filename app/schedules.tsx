@@ -41,8 +41,9 @@ export function SchedulePanel({
             <span className="count-pill">{s.schedule_total}</span>
           </h2>
           <p>
-            Account-specific briefs, on a repeatable schedule. Live runs need
-            the worker online; rehearsals advance from the work queue.
+            Account-specific scripts or original ambient videos, on a repeatable
+            schedule. Live runs need the worker online; rehearsals advance from
+            the work queue.
           </p>
         </div>
         <Button onClick={() => onEdit(null)} disabled={busy}>
@@ -91,7 +92,12 @@ export function SchedulePanel({
                   !!r.account_paused ||
                   !!s.settings.paused ||
                   s.agents.some(
-                    (a) => (a.id === "astra" || a.id === r.lane) && a.paused,
+                    (a) =>
+                      (a.id === "astra" ||
+                        a.id === r.lane ||
+                        (r.production_kind === "ambient" &&
+                          a.id === "ambient-editor")) &&
+                      a.paused,
                   );
                 const exhausted =
                   r.max_runs !== null && r.generated_count >= r.max_runs;
@@ -112,7 +118,12 @@ export function SchedulePanel({
                         {r.handle} ·{" "}
                         {platformInfo[r.platform]?.name || r.platform}
                       </small>
-                      <small>{r.mode}</small>
+                      <small>
+                        {r.production_kind === "ambient"
+                          ? "Original ambient video"
+                          : "Astra workflow"}{" "}
+                        · {r.mode}
+                      </small>
                     </td>
                     <td>
                       Every{" "}
@@ -253,13 +264,42 @@ export function ScheduleForm({
 }: {
   value: Schedule | null;
   busy: boolean;
-  children: ReactNode;
+  children: (kind: "workflow" | "ambient") => ReactNode;
   onSubmit: (e: FormEvent<HTMLFormElement>) => void;
 }) {
   const [requestId] = useState(() => crypto.randomUUID());
+  const [kind, setKind] = useState<"workflow" | "ambient">(
+    r?.production_kind || "workflow",
+  );
+  let recipe: { seconds?: number; noise?: string; theme?: string } = {};
+  try {
+    recipe = JSON.parse(r?.render_recipe || "{}");
+  } catch {}
   return (
     <form className="form" onSubmit={onSubmit}>
       {!r && <input type="hidden" name="request_id" value={requestId} />}
+      <label className="field">
+        <span>What to produce</span>
+        <select
+          name={r ? undefined : "production_kind"}
+          value={kind}
+          disabled={!!r}
+          onChange={(e) => setKind(e.target.value as "workflow" | "ambient")}
+        >
+          <option value="workflow">
+            Astra workflow · scripts and editorial packages
+          </option>
+          <option value="ambient">
+            Original ambient video · ready for library review
+          </option>
+        </select>
+        {r && <input type="hidden" name="production_kind" value={kind} />}
+        <small>
+          {kind === "ambient"
+            ? "Choose an authorized account in the Ambient studio. This uses the local renderer without model calls."
+            : "Astra delegates a fresh creative brief to the account’s studio."}
+        </small>
+      </label>
       {r ? (
         <>
           <input type="hidden" name="id" value={r.id} />
@@ -267,11 +307,11 @@ export function ScheduleForm({
           <input type="hidden" name="account" value={r.account} />
           <p className="inset-note">
             {r.handle} · {platformInfo[r.platform]?.name}. Changes apply to
-            future occurrences; existing work retains its brief.
+            future occurrences; existing work retains its saved settings.
           </p>
         </>
       ) : (
-        children
+        children(kind)
       )}
       <label className="field">
         <span>Schedule title</span>
@@ -285,10 +325,20 @@ export function ScheduleForm({
         />
       </label>
       <label className="field">
-        <span>Account-specific production brief</span>
+        <span>
+          {kind === "ambient"
+            ? "Account notes for review"
+            : "Account-specific production brief"}
+        </span>
         <textarea
           name="brief"
-          defaultValue={r?.brief}
+          key={kind}
+          defaultValue={
+            r?.brief ||
+            (kind === "ambient"
+              ? "Create original ambient sound videos for this account. Review each result and approve publication separately."
+              : "")
+          }
           rows={5}
           minLength={15}
           maxLength={6000}
@@ -296,13 +346,55 @@ export function ScheduleForm({
           placeholder="Audience, style, recurring topics, original or licensed sources, and the output this account needs…"
         />
       </label>
+      {kind === "ambient" && (
+        <div className="form-two">
+          <label className="field">
+            <span>Noise texture</span>
+            <select name="render_noise" defaultValue={recipe?.noise || "pink"}>
+              <option value="pink">Pink · softer high frequencies</option>
+              <option value="white">White · broadband</option>
+              <option value="brown">Brown · deeper sound</option>
+            </select>
+          </label>
+          <label className="field">
+            <span>Visual color</span>
+            <select name="render_theme" defaultValue={recipe?.theme || "night"}>
+              <option value="night">Night · dark slate</option>
+              <option value="ocean">Ocean · deep blue</option>
+              <option value="forest">Forest · deep green</option>
+            </select>
+          </label>
+          <label className="field">
+            <span>Video duration (seconds)</span>
+            <Input
+              type="number"
+              name="render_seconds"
+              min={10}
+              max={300}
+              defaultValue={recipe?.seconds || 60}
+              required
+            />
+            <small>
+              10–300 seconds. Each occurrence receives a saved noise seed;
+              retries keep the same recipe.
+            </small>
+          </label>
+        </div>
+      )}
       <div className="form-two">
         <label className="field">
           <span>Execution</span>
-          <select name="mode" defaultValue={r?.mode || "rehearsal"}>
-            <option value="rehearsal">Rehearsal · no model calls</option>
-            <option value="live">Live · connected worker required</option>
-          </select>
+          {kind === "ambient" ? (
+            <>
+              <input type="hidden" name="mode" value="live" />
+              <p>Live local rendering · connected worker required</p>
+            </>
+          ) : (
+            <select name="mode" defaultValue={r?.mode || "rehearsal"}>
+              <option value="rehearsal">Rehearsal · no model calls</option>
+              <option value="live">Live · connected worker required</option>
+            </select>
+          )}
         </label>
         <label className="field">
           <span>Repeat every (minutes)</span>
@@ -349,10 +441,29 @@ export function ScheduleForm({
         <input type="checkbox" name="paused" defaultChecked={!!r?.paused} />
         <span>Keep this schedule paused</span>
       </label>
-      <p className="inset-note">
-        Astra delegates each brief to the account’s studio. This creates scripts
-        and editorial packages; it grants no automatic publishing approval.
-      </p>
+      {kind === "ambient" ? (
+        <>
+          <label className="checkbox">
+            <input type="checkbox" name="render_approved" required />
+            <span>
+              I approve recurring original videos with this recipe and timing.
+              Publication requires separate approval.
+            </span>
+          </label>
+          <p className="inset-note">
+            The Ambient editorial queue renders each due video into the private
+            library. Account, schedule, studio and workspace pauses apply. A
+            failed run holds the next one for review. No model call or automatic
+            post is made.
+          </p>
+        </>
+      ) : (
+        <p className="inset-note">
+          Astra delegates each brief to the account’s studio. This creates
+          scripts and editorial packages; it grants no automatic publishing
+          approval.
+        </p>
+      )}
       <Button type="submit" disabled={busy}>
         Save schedule
       </Button>

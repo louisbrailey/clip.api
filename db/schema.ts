@@ -172,6 +172,10 @@ export const usage = sqliteTable(
 export const schedules = sqliteTable(
   "schedules",
   {
+    production_kind: text().notNull().default("workflow"),
+    render_recipe: text(),
+    render_approved: integer().notNull().default(0),
+    creation_hash: text(),
     id: text().primaryKey(),
     owner: text().notNull(),
     account: text().notNull(),

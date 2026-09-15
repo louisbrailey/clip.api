@@ -43,6 +43,13 @@
       "when": 1789238771575,
       "tag": "0005_cuddly_professor_monster",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1789459930591,
+      "tag": "0006_fair_machine_man",
+      "breakpoints": true
     }
   ]
 }

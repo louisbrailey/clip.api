@@ -381,10 +381,27 @@ export async function POST(request: Request) {
       const v = scheduleInput.parse(body),
         timestamp = now();
       const id = v.id || v.request_id!;
+      const recipe = v.render_recipe ? JSON.stringify(v.render_recipe) : null;
+      const creationHash = await hash(
+        JSON.stringify([
+          v.account,
+          v.title,
+          v.brief,
+          v.mode,
+          v.interval_minutes,
+          v.next_run,
+          v.max_runs,
+          v.paused,
+          v.production_kind,
+          recipe,
+          v.render_approved,
+        ]),
+      );
       const statement = v.id
         ? sql(
-            `UPDATE schedules SET title=?,brief=?,mode=?,interval_minutes=?,next_run=?,max_runs=?,paused=?,revision=revision+1,updated=?
-            WHERE owner=? AND id=? AND account=? AND revision=?
+            `UPDATE schedules SET title=?,brief=?,mode=?,interval_minutes=?,next_run=?,max_runs=?,paused=?,revision=revision+1,updated=?,render_recipe=?,render_approved=?
+            WHERE owner=? AND id=? AND account=? AND revision=? AND production_kind=?
+            AND EXISTS(SELECT 1 FROM accounts a WHERE a.owner=schedules.owner AND a.id=schedules.account AND a.authorized=1 AND (schedules.production_kind!='ambient' OR a.lane='ambient'))
             AND NOT EXISTS(SELECT 1 FROM jobs history WHERE history.owner=schedules.owner AND history.schedule_id=schedules.id AND history.parent IS NULL AND history.occurrence=?)`,
             v.title,
             v.brief,
@@ -394,15 +411,18 @@ export async function POST(request: Request) {
             v.max_runs,
             +v.paused,
             timestamp,
+            recipe,
+            +v.render_approved,
             owner,
             id,
             v.account,
             v.revision!,
+            v.production_kind,
             v.next_run,
           )
         : sql(
-            `INSERT OR IGNORE INTO schedules(id,owner,account,title,brief,mode,interval_minutes,next_run,max_runs,paused,created,updated)
-            SELECT ?,?,?,?,?,?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM accounts WHERE owner=? AND id=? AND authorized=1)
+            `INSERT OR IGNORE INTO schedules(id,owner,account,title,brief,mode,interval_minutes,next_run,max_runs,paused,created,updated,production_kind,render_recipe,render_approved,creation_hash)
+            SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM accounts WHERE owner=? AND id=? AND authorized=1 AND (?!='ambient' OR lane='ambient'))
             AND (SELECT COUNT(*) FROM schedules WHERE owner=?)<10000`,
             id,
             owner,
@@ -416,8 +436,13 @@ export async function POST(request: Request) {
             +v.paused,
             timestamp,
             timestamp,
+            v.production_kind,
+            recipe,
+            +v.render_approved,
+            creationHash,
             owner,
             v.account,
+            v.production_kind,
             owner,
           );
       const result = await db().batch([
@@ -428,19 +453,21 @@ export async function POST(request: Request) {
         ),
       ]);
       if (!result[0].meta.changes) {
-        // Creation request IDs are stable across retries: the first saved request wins.
+        // Preserve the immutable creation intent, even after recurrence advances or later edits.
         const replay =
           !v.id &&
           (await sql(
-            "SELECT id FROM schedules WHERE owner=? AND id=?",
+            "SELECT id FROM schedules WHERE owner=? AND id=? AND (creation_hash=? OR (creation_hash IS NULL AND production_kind='workflow' AND ?='workflow'))",
             owner,
             id,
+            creationHash,
+            v.production_kind,
           ).first());
         if (!replay)
           throw new ApiError(
             v.id
-              ? "Schedule changed or this start time was already used. Refresh, choose a new time, and keep its account unchanged."
-              : "Authorized account unavailable or schedule limit reached",
+              ? "Schedule changed, its output/account cannot change, or this start time was used. Refresh and choose an unused time."
+              : "Account/studio unavailable, schedule limit reached, or request ID already saved different settings",
             409,
           );
       }

@@ -1,11 +1,11 @@
 # Release verification
 
-Development verification performed September 11–12, 2026. This file records the scope of evidence and its limits.
+Development verification performed September 11–15, 2026. This file records the scope of evidence and its limits.
 
 | Requirement | Evidence | Result / limitation |
 |---|---|---|
 | Portal source and client/server compilation | `npx tsc --noEmit`; `npm run build` | Passed during implementation; final rebuild passed for the source prepared for publication. |
-| Durable records and migrations | D1 local execution of all six generated migrations; actual HTTP workflows | Persisted agents, jobs, usage, audit events, account records and media metadata verified locally. |
+| Durable records and migrations | D1 local execution of all seven generated migrations; actual HTTP workflows | Persisted agents, jobs, usage, audit events, account records and media metadata verified locally. |
 | Astra delegation | HTTP creation, claim and completion; structured-output worker fixture tests | Exact `gpt-6-astra` selection verified; no paid model invocation. |
 | Per-agent controls | HTTP ancestor-pause check; SQL agent/global concurrency tests | Pauses and subsequent-claim configuration verified. No mid-call steering. |
 | Queue reliability | Atomic-claim SQL tests, competing HTTP callbacks, duplicate completion and stale lease checks | Single winning callback; losing callbacks cannot append children. Budget reservations and daily-ledger checks passed. |
@@ -66,4 +66,17 @@ An actual Python worker rendered a ten-second original pink-noise/ocean-color MP
 
 Tests cover explicit recipe approval, strict renderer inputs, immutable creation replay and changed-recipe rejection, token-free render claims, browser/machine privilege separation, stale leases, inherited pauses, content digest mismatch, duplicate output races, forbidden success before asset registration and separation from publication approval. Process tests cover credential-free child environments and process-group termination after lease loss. Existing model/provider queue tests also passed. Independent review exercised the actual fenced SQL against disposable SQLite and found no remaining release blocker after the replay fix.
 
-The first render integration attempt stopped on a test-helper argument collision; no renderer/provider request occurred. The helper was corrected and the 27-check suite passed against a fresh local database. Browser interaction QA was not performed. The Dockerfile now includes FFmpeg but Docker execution, live host authentication, provider access, recurring render generation, script-to-video production and 24/7 operation remain unverified or unfinished.
+The first render integration attempt stopped on a test-helper argument collision; no renderer/provider request occurred. The helper was corrected and the 27-check suite passed against a fresh local database. Browser interaction QA was not performed. At that release, the Dockerfile included FFmpeg but Docker execution, live host authentication, provider access, recurring render generation, script-to-video production and 24/7 operation remained unverified or unfinished.
+
+
+## Recurring ambient production release — September 15, 2026
+
+**134 unit/SQL/worker/process tests, 3 official-parser tests and 215 local HTTP checks passed (352 total)**. HTTP coverage comprises 42 base workflow/media, 41 workflow recurrence, 5 credential redirects, 46 network controls, 20 X approvals, 27 queued-render and 34 recurring-render checks. All seven generated migrations applied to a fresh isolated local database. The additive migration adds schedule recipe/approval, output type and creation-intent metadata; the preceding six deployed migrations are unchanged.
+
+Two actual ten-second ambient videos were generated from separate occurrences of one approved schedule. Each was claimed, rendered, registered in private local storage, completed, downloaded, digest-verified and fully decoded with FFmpeg. A fresh worker and empty local journal handled each occurrence; schedule and job context persisted in the portal. An approved schedule edit changed only the next video’s recipe, and the run limit prevented a third occurrence. The test advanced the next occurrence through the operator API; it did not wait an hour or demonstrate continuous 24/7 uptime. Saved outputs are `outputs/ambient-recurring-ocean.mp4`, `outputs/ambient-recurring-forest.mp4`, their rights records, and `outputs/recurring-render-proof.json`.
+
+New coverage includes explicit approval, authorized Ambient account enforcement, live-only render schedules, exact creation replay after expansion, changed-intent rejection, immutable output type, per-occurrence recipe/seed snapshots, competing polls, token-free claims, account/editor/schedule pauses, upload fencing, future-only recipe edits, unresolved-run holds, max-run limits, and absence of implicit model or publishing jobs. Independent read-only review found no release blocker and exercised creation/edit bindings and seven pause gates with disposable SQLite.
+
+The HTTP test found a real D1 interoperability issue: a numeric seed bound into `json_set` became a JSON decimal, rejected by the worker’s strict integer validation. The query now casts that parameter to an integer before serialization; a regression binds a float and checks the parsed JSON type. Both actual recurring videos passed after the fix. An earlier test-helper argument collision was also corrected; its schedule was paused before retry. All records involved were disposable local fixtures.
+
+TypeScript compilation and the production build passed. No model, social API or provider OAuth request was made. Browser interaction QA, successful production worker authentication, Docker execution, an always-on host, real provider acceptance, script-to-video generation and sustained operating throughput remain unverified or unfinished. The historical million-definition SQLite benchmark was not rerun for this additive schedule change.

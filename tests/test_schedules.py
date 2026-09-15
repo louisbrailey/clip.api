@@ -1,5 +1,6 @@
 """Run the application's recurrence and claim SQL against committed migrations."""
 import concurrent.futures
+import json
 from pathlib import Path
 import re
 import sqlite3
@@ -31,7 +32,7 @@ class ScheduleTests(unittest.TestCase):
         for f in sorted((ROOT/'drizzle').glob('*.sql')):self.db.executescript(f.read_text())
         for owner in ('alice','bob'):
             self.db.execute('INSERT INTO settings(owner) VALUES(?)',(owner,))
-            for agent,parent in [('astra',None),('ambient','astra'),('ambient-writer','ambient')]:
+            for agent,parent in [('astra',None),('ambient','astra'),('ambient-writer','ambient'),('ambient-editor','ambient')]:
                 self.db.execute('INSERT INTO agents(owner,id,parent,name,role,lane,model,instructions,color) VALUES(?,?,?,?,?,?,?,?,?)',(owner,agent,parent,agent,'writer','ambient','gpt-6-astra','original work','#fff'))
             self.db.execute('INSERT INTO accounts(id,owner,platform,handle,lane,external_id,credential_ref,authorized,created) VALUES(?,?,?,?,?,?,?,?,?)',(owner+'-account',owner,'youtube','@'+owner,'ambient',owner+'-channel','YT_REFERENCE',1,self.now))
         self.db.commit()
@@ -41,10 +42,10 @@ class ScheduleTests(unittest.TestCase):
         self.db.execute('INSERT INTO schedules('+','.join(values)+') VALUES('+','.join('?' for _ in values)+')',list(values.values()));self.db.commit()
     def due(self,owner='alice',mode='live'):
         return [r[0] for r in self.db.execute(DUE,(owner,mode,self.now))]
-    def expand(self,schedule='recurring',job=None,owner='alice',mode='live',db=None):
+    def expand(self,schedule='recurring',job=None,owner='alice',mode='live',db=None,seed=123):
         db=db or self.db;job=job or str(uuid.uuid4())
         with db:
-            db.execute(INSERT,(job,self.now,self.now,owner,schedule,owner,mode,self.now))
+            db.execute(INSERT,(job,self.now,self.now,seed,owner,schedule,owner,mode,self.now))
             db.execute(ADVANCE,(self.now,self.now,owner,schedule,job))
             db.execute(EVENT,(job,self.now,owner,job))
         return job
@@ -57,7 +58,7 @@ class ScheduleTests(unittest.TestCase):
             self.db.execute(CONTROL_EVENT,(str(uuid.uuid4()),'alice','Fixture schedule control',self.now))
         return result
     def create_args(self):
-        return ('recurring','alice','alice-account','Original meditation','Create an original calming script.','live',60,self.now,None,0,self.now,self.now,'alice','alice-account','alice')
+        return ('recurring','alice','alice-account','Original meditation','Create an original calming script.','live',60,self.now,None,0,self.now,self.now,'workflow',None,0,'fixture-creation-hash','alice','alice-account','workflow','alice')
     def test_creation_replay_has_one_schedule_and_audit_event(self):
         self.assertEqual(self.control(CREATE,self.create_args()),1)
         self.assertEqual(self.control(CREATE,self.create_args()),0)
@@ -69,7 +70,7 @@ class ScheduleTests(unittest.TestCase):
         self.assertEqual(self.db.execute('SELECT COUNT(*) FROM schedules').fetchone()[0],0)
     def test_edit_cannot_reuse_historical_occurrence_or_emit_false_audit(self):
         self.schedule();self.expand();before=self.db.execute('SELECT COUNT(*) FROM events').fetchone()[0]
-        args=('New title','New original brief','live',60,self.now,None,0,self.now,'alice','recurring','alice-account',self.row()['revision'],self.now)
+        args=('New title','New original brief','live',60,self.now,None,0,self.now,None,0,'alice','recurring','alice-account',self.row()['revision'],'workflow',self.now)
         self.assertEqual(self.control(EDIT,args),0)
         self.assertEqual(self.db.execute('SELECT COUNT(*) FROM events').fetchone()[0],before)
         self.assertEqual(self.row()['title'],'Original meditation')
@@ -90,7 +91,7 @@ class ScheduleTests(unittest.TestCase):
             with self.subTest(query=query):
                 self.db.execute('SAVEPOINT guard');self.db.execute(query)
                 before=self.row()['generated_count']
-                self.db.execute(INSERT,('blocked',self.now,self.now,'alice','recurring','alice','live',self.now))
+                self.db.execute(INSERT,('blocked',self.now,self.now,123,'alice','recurring','alice','live',self.now))
                 self.db.execute(ADVANCE,(self.now,self.now,'alice','recurring','blocked'))
                 self.assertEqual(self.db.execute('SELECT COUNT(*) FROM jobs').fetchone()[0],0)
                 self.assertEqual(self.row()['generated_count'],before)
@@ -156,6 +157,60 @@ class ScheduleTests(unittest.TestCase):
         with self.assertRaises(sqlite3.IntegrityError):self.expand()
         self.assertEqual(self.db.execute('SELECT COUNT(*) FROM jobs').fetchone()[0],0)
         self.assertEqual(self.row()['generated_count'],0)
+    def ambient(self,**kw):
+        self.schedule(production_kind='ambient',render_recipe=json.dumps({'seconds':10,'noise':'pink','theme':'ocean'}),render_approved=1,**kw)
+    def test_ambient_occurrence_snapshots_recipe_seed_and_account(self):
+        self.ambient();self.expand(seed=123)
+        j=self.db.execute('SELECT * FROM jobs').fetchone()
+        self.assertEqual((j['agent'],j['kind'],j['approved'],j['account']),('ambient-editor','render',1,'alice-account'))
+        self.assertEqual(json.loads(j['render_spec']),{'seconds':10,'noise':'pink','theme':'ocean','seed':123})
+        self.assertEqual(self.claim()['reserve'],0)
+    def test_ambient_float_bound_seed_is_serialized_as_json_integer(self):
+        self.ambient();self.expand(seed=595646801.0)
+        seed=json.loads(self.db.execute('SELECT render_spec FROM jobs').fetchone()[0])['seed']
+        self.assertIs(type(seed),int);self.assertEqual(seed,595646801)
+    def test_ambient_replay_does_not_replace_seed_or_count(self):
+        self.ambient();self.expand(job='first',seed=123);self.expand(job='first',seed=456);self.expand(job='second',seed=789)
+        self.assertEqual(self.row()['generated_count'],1)
+        self.assertEqual(json.loads(self.db.execute('SELECT render_spec FROM jobs').fetchone()[0])['seed'],123)
+    def test_ambient_recipe_edit_only_affects_later_occurrences(self):
+        self.ambient();self.expand(job='first',seed=123)
+        self.db.execute("UPDATE schedules SET render_recipe=?,next_run=?",(json.dumps({'seconds':20,'noise':'brown','theme':'forest'}),self.now+1));self.db.execute("UPDATE jobs SET status='succeeded'");self.db.commit()
+        self.now+=1;self.expand(job='second',seed=456)
+        recipes={row[0]:json.loads(row[1]) for row in self.db.execute('SELECT id,render_spec FROM jobs')}
+        self.assertEqual(recipes['first']['seconds'],10);self.assertEqual(recipes['second'],{'seconds':20,'noise':'brown','theme':'forest','seed':456})
+    def test_ambient_guards_rechecked_inside_expansion(self):
+        self.ambient()
+        for query in ["UPDATE schedules SET render_approved=0","UPDATE schedules SET render_recipe=NULL","UPDATE schedules SET mode='rehearsal'","UPDATE accounts SET lane='sports'","UPDATE agents SET paused=1 WHERE id='ambient-editor'","UPDATE agents SET archived=1 WHERE id='ambient-editor'"]:
+            with self.subTest(query=query):
+                self.db.execute('SAVEPOINT ambient_guard');self.db.execute(query)
+                self.db.execute(INSERT,('blocked',self.now,self.now,123,'alice','recurring','alice','live',self.now))
+                self.assertEqual(self.db.execute('SELECT COUNT(*) FROM jobs').fetchone()[0],0)
+                self.db.execute('ROLLBACK TO ambient_guard');self.db.execute('RELEASE ambient_guard')
+    def test_paused_renderer_does_not_starve_ready_model_schedule(self):
+        self.ambient();self.db.execute("UPDATE agents SET paused=1 WHERE id='ambient-editor'");self.db.commit();self.schedule('model')
+        self.assertEqual(self.due(),['model'])
+    def test_scheduled_render_preflight_respects_schedule_pause_and_lease(self):
+        self.ambient();self.expand();j=self.claim()
+        query=re.search(r'renderEligibility = `(.*?)`',(ROOT/'lib/render.ts').read_text(),re.S).group(1)
+        self.assertIsNotNone(self.db.execute(query,('alice',j['id'],'lease',self.now)).fetchone())
+        self.db.execute('UPDATE schedules SET paused=1')
+        self.assertIsNone(self.db.execute(query,('alice',j['id'],'lease',self.now)).fetchone())
+        self.db.execute('UPDATE schedules SET paused=0')
+        self.assertIsNone(self.db.execute(query,('alice',j['id'],'old-lease',self.now)).fetchone())
+        self.assertIsNone(self.db.execute(query,('bob',j['id'],'lease',self.now)).fetchone())
+    def test_schedule_output_kind_cannot_be_changed_by_edit(self):
+        self.ambient();args=('New title','New original brief','live',60,self.now+1,None,0,self.now,None,0,'alice','recurring','alice-account',self.row()['revision'],'workflow',self.now+1)
+        self.assertEqual(self.control(EDIT,args),0);self.assertEqual(self.row()['production_kind'],'ambient')
+    def test_legacy_schedule_migration_preserves_configuration(self):
+        db=sqlite3.connect(':memory:')
+        try:
+            files=sorted((ROOT/'drizzle').glob('*.sql'))
+            for f in files[:-1]:db.executescript(f.read_text())
+            db.execute("INSERT INTO schedules(id,owner,account,title,brief,mode,interval_minutes,next_run,created,updated) VALUES('legacy','alice','account','Title','Original brief','rehearsal',1440,123,1,1)")
+            db.executescript(files[-1].read_text())
+            self.assertEqual(db.execute("SELECT production_kind,render_recipe,render_approved,creation_hash,mode,interval_minutes,next_run FROM schedules").fetchone(),('workflow',None,0,None,'rehearsal',1440,123))
+        finally:db.close()
     def test_competing_expanders_create_one_root_and_persist_after_restart(self):
         self.schedule()
         with tempfile.TemporaryDirectory() as folder:
