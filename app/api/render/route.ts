@@ -65,7 +65,9 @@ export async function POST(request: Request) {
     const candidate = crypto.randomUUID(),
       key = `${owner}/${candidate}.mp4`,
       name = `ambient-${spec.noise}-${id}.mp4`;
-    const evidence = `Original procedural ${spec.theme} color video and synthesized ${spec.noise} noise; ${spec.seconds} seconds, seed ${spec.seed}. Rendered by the authorized worker with FFmpeg, without third-party footage or soundtrack. SHA-256: ${digest}.`;
+    const evidence = spec.script
+      ? "Original procedural ambient color video, synthesized noise and the operator-approved original narration script. Generated locally; no third-party footage, soundtrack or voice recording."
+      : `Original procedural ${spec.theme} color video and synthesized ${spec.noise} noise; ${spec.seconds} seconds, seed ${spec.seed}. Rendered by the authorized worker with FFmpeg, without third-party footage or soundtrack. SHA-256: ${digest}.`;
     await bucket().put(key, bytes, {
       httpMetadata: { contentType: "video/mp4" },
     });

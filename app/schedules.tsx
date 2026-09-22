@@ -272,7 +272,7 @@ export function ScheduleForm({
     r?.production_kind || "workflow",
   );
   const [defaultRun] = useState(() => localDate(r?.next_run || Date.now()));
-  let recipe: { seconds?: number; noise?: string; theme?: string } = {};
+  let recipe: { seconds?: number; noise?: string; theme?: string; script?: string | null } = {};
   try {
     recipe = JSON.parse(r?.render_recipe || "{}");
   } catch {}
@@ -381,6 +381,20 @@ export function ScheduleForm({
             </small>
           </label>
         </div>
+      )}
+      {kind === "ambient" && (
+        <label className="field">
+          <span>Recurring narration script (optional)</span>
+          <textarea
+            name="render_script"
+            rows={4}
+            minLength={15}
+            maxLength={3000}
+            defaultValue={recipe.script || ""}
+            placeholder="An original script used for every scheduled video…"
+          />
+          <small>Future edits require renewed recipe approval.</small>
+        </label>
       )}
       <div className="form-two">
         <label className="field">

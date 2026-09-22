@@ -158,7 +158,7 @@ class ScheduleTests(unittest.TestCase):
         self.assertEqual(self.db.execute('SELECT COUNT(*) FROM jobs').fetchone()[0],0)
         self.assertEqual(self.row()['generated_count'],0)
     def ambient(self,**kw):
-        self.schedule(production_kind='ambient',render_recipe=json.dumps({'seconds':10,'noise':'pink','theme':'ocean'}),render_approved=1,**kw)
+        kw.setdefault('render_recipe',json.dumps({'seconds':10,'noise':'pink','theme':'ocean'}));self.schedule(production_kind='ambient',render_approved=1,**kw)
     def test_ambient_occurrence_snapshots_recipe_seed_and_account(self):
         self.ambient();self.expand(seed=123)
         j=self.db.execute('SELECT * FROM jobs').fetchone()
@@ -169,6 +169,10 @@ class ScheduleTests(unittest.TestCase):
         self.ambient();self.expand(seed=595646801.0)
         seed=json.loads(self.db.execute('SELECT render_spec FROM jobs').fetchone()[0])['seed']
         self.assertIs(type(seed),int);self.assertEqual(seed,595646801)
+    def test_ambient_seed_upper_boundary_stays_json_integer(self):
+        self.ambient();self.expand(seed=2147483647)
+        seed=json.loads(self.db.execute('SELECT render_spec FROM jobs').fetchone()[0])['seed']
+        self.assertIs(type(seed),int);self.assertEqual(seed,2147483647)
     def test_ambient_replay_does_not_replace_seed_or_count(self):
         self.ambient();self.expand(job='first',seed=123);self.expand(job='first',seed=456);self.expand(job='second',seed=789)
         self.assertEqual(self.row()['generated_count'],1)
@@ -179,6 +183,12 @@ class ScheduleTests(unittest.TestCase):
         self.now+=1;self.expand(job='second',seed=456)
         recipes={row[0]:json.loads(row[1]) for row in self.db.execute('SELECT id,render_spec FROM jobs')}
         self.assertEqual(recipes['first']['seconds'],10);self.assertEqual(recipes['second'],{'seconds':20,'noise':'brown','theme':'forest','seed':456})
+    def test_ambient_narration_script_snapshots_per_occurrence(self):
+        self.ambient(render_recipe=json.dumps({'seconds':10,'noise':'pink','theme':'ocean','script':'Original narration'}));self.expand(job='first',seed=123)
+        self.db.execute("UPDATE schedules SET render_recipe=?,next_run=?",(json.dumps({'seconds':10,'noise':'pink','theme':'ocean','script':'Revised narration'}),self.now+1));self.db.execute("UPDATE jobs SET status='succeeded'");self.db.commit()
+        self.now+=1;self.expand(job='second',seed=456)
+        scripts={row[0]:json.loads(row[1])['script'] for row in self.db.execute('SELECT id,render_spec FROM jobs')}
+        self.assertEqual(scripts,{'first':'Original narration','second':'Revised narration'})
     def test_ambient_guards_rechecked_inside_expansion(self):
         self.ambient()
         for query in ["UPDATE schedules SET render_approved=0","UPDATE schedules SET render_recipe=NULL","UPDATE schedules SET mode='rehearsal'","UPDATE accounts SET lane='sports'","UPDATE agents SET paused=1 WHERE id='ambient-editor'","UPDATE agents SET archived=1 WHERE id='ambient-editor'"]:

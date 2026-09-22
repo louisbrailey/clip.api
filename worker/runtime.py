@@ -601,14 +601,15 @@ RENDER_SLOT = threading.Semaphore(1)
 def render_spec(value):
     try: spec=json.loads(value)
     except (ValueError,TypeError): raise RuntimeFailure('Invalid ambient render recipe') from None
-    if not isinstance(spec,dict) or set(spec)!={'seconds','noise','theme','seed'} or type(spec.get('seconds')) is not int or not 10<=spec['seconds']<=300 or spec.get('noise') not in ('white','pink','brown') or spec.get('theme') not in ('night','ocean','forest') or type(spec.get('seed')) is not int or not 1<=spec['seed']<=2147483647:
+    if not isinstance(spec,dict) or not {'seconds','noise','theme','seed'} <= set(spec) <= {'seconds','noise','theme','seed','script'} or type(spec.get('seconds')) is not int or not 10<=spec['seconds']<=300 or spec.get('noise') not in ('white','pink','brown') or spec.get('theme') not in ('night','ocean','forest') or type(spec.get('seed')) is not int or not 1<=spec['seed']<=2147483647 or 'script' in spec and (not isinstance(spec['script'],str) or not 15<=len(spec['script'])<=3000 or '\x00' in spec['script']):
         raise RuntimeFailure('Invalid ambient render recipe')
     return spec
 
 def render_process(output,spec,lease_valid):
     """Only an allowlisted recipe reaches this fixed renderer. No model commands."""
     command=[sys.executable,str(Path(__file__).with_name('render.py')),str(output),'--seconds',str(spec['seconds']),'--noise',spec['noise'],'--theme',spec['theme'],'--seed',str(spec['seed'])]
-    environment={k:os.environ[k] for k in ('PATH','SYSTEMROOT','FFMPEG_BIN') if k in os.environ}
+    if spec.get('script'):command += ['--script',spec['script']]
+    environment={k:os.environ[k] for k in ('PATH','SYSTEMROOT','FFMPEG_BIN','NARRATOR_BIN') if k in os.environ}
     process=subprocess.Popen(command,stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True,env=environment)
     deadline=time.monotonic()+max(120,spec['seconds']*4)
     try:

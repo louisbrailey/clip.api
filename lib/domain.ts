@@ -283,6 +283,7 @@ export const ambientRecipe = z
     seconds: z.number().int().min(10).max(300),
     noise: z.enum(["white", "pink", "brown"]),
     theme: z.enum(["night", "ocean", "forest"]),
+    script: z.string().trim().min(15).max(3000).nullable().default(null),
   })
   .strict();
 export const scheduleInput = z

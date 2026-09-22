@@ -220,6 +220,7 @@ function ControlRoom({ displayName }: { displayName: string }) {
     const f = new FormData(e.currentTarget),
       v = Object.fromEntries(f);
     const body: Record<string, unknown> = { action, ...v };
+    if (body.script === "") body.script = null;
     if (action === "workflow")
       body.scheduled = v.scheduled
         ? new Date(String(v.scheduled)).getTime()
@@ -232,6 +233,7 @@ function ControlRoom({ displayName }: { displayName: string }) {
               seconds: Number(v.render_seconds),
               noise: v.render_noise,
               theme: v.render_theme,
+              script: String(v.render_script || "").trim() || null,
             }
           : null;
       body.render_approved =
@@ -1407,6 +1409,19 @@ function ControlRoom({ displayName }: { displayName: string }) {
                   <option value="ocean">Ocean · deep blue</option>
                   <option value="forest">Forest · deep green</option>
                 </select>
+              </Field>
+              <Field label="Narration script (optional)">
+                <textarea
+                  name="script"
+                  rows={5}
+                  minLength={15}
+                  maxLength={3000}
+                  placeholder="An original, reviewable narration script…"
+                />
+                <small>
+                  Optional locally synthesized voice for this ambient video. The
+                  exact script is saved with the approved recipe.
+                </small>
               </Field>
               <Field
                 label="Duration in seconds"

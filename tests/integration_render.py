@@ -73,7 +73,7 @@ try:
         with patch.object(r,'render_process',side_effect=AssertionError('Saved output must not rerender')):
             with tempfile.TemporaryDirectory() as journal:r.Worker(portal,r.Journal(journal)).process(c)
         check(job(jid)['status']=='succeeded','worker recovers saved output and completes without rerendering')
-        code,created,_=queue(title='Actual queued original ocean video');actual=created['id']
+        code,created,_=queue(title='Actual queued original ocean video',seconds=10,script='Breathe in, breathe out. This original video belongs to the operator.');actual=created['id']
         code,c=req(dict(action='claim',request_id=str(uuid.uuid4())),key=key);assert c['job']['id']==actual
         with tempfile.TemporaryDirectory() as journal:r.Worker(portal,r.Journal(journal)).process(c)
         finished=job(actual);check(finished['status']=='succeeded' and bool(finished['asset']),'real worker render saves video and completes through the local portal')
@@ -82,7 +82,7 @@ try:
         check(hashlib.sha256(video).hexdigest()==asset['sha256'],'downloaded video matches persisted provenance digest')
         check(asset['source_job']==actual and asset['rights']=='original' and asset['expires'] is None,'generated asset records its originating job and original rights')
         output=ROOT/'outputs/ambient-queued-ocean.mp4';output.write_bytes(video)
-        subprocess.run([FFMPEG,'-hide_banner','-loglevel','error','-i',str(output),'-f','null','-'],check=True,timeout=60,capture_output=True)
+        subprocess.run([FFMPEG,'-hide_banner','-loglevel','error','-i',str(output),'-map','0:a','-f','null','-'],check=True,timeout=60,capture_output=True)
         check(True,'real generated video fully decodes with FFmpeg')
         output.with_suffix('.rights.json').write_text(json.dumps({k:asset[k] for k in ('id','name','source_job','sha256','rights','evidence','expires')},indent=2)+'\n')
         check(not any(x['kind']=='publish' and x['asset']==aid for x in req()[1]['jobs']),'render completion does not approve or enqueue publication')

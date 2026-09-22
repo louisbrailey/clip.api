@@ -95,6 +95,14 @@ class ProcessTests(unittest.TestCase):
             r.render_process(Path('/tmp/original.mp4'),SPEC,lambda:True)
         self.assertEqual(start.call_args.kwargs['env'],{'PATH':'/usr/bin'});self.assertNotIn('shell',start.call_args.kwargs)
         self.assertNotIn('--source',start.call_args.args[0])
+    def test_narration_script_uses_fixed_argument_without_credential_leak(self):
+        process=Mock();process.poll.return_value=0;process.returncode=0
+        recipe=dict(SPEC,script='Original narration for the approved ambient video')
+        with patch.dict(os.environ,{'OPENAI_API_KEY':'private','NARRATOR_BIN':'/usr/bin/say','PATH':'/usr/bin'},clear=True),patch.object(r.subprocess,'Popen',return_value=process) as start:
+            r.render_process(Path('/tmp/original.mp4'),recipe,lambda:True)
+        command=start.call_args.args[0]
+        self.assertEqual(command[-2:],['--script',recipe['script']]);self.assertEqual(start.call_args.kwargs['env'],{'PATH':'/usr/bin','NARRATOR_BIN':'/usr/bin/say'})
+
     def test_lease_loss_terminates_renderer_process_group(self):
         process=Mock();process.poll.return_value=None;process.pid=12345
         with patch.object(r.subprocess,'Popen',return_value=process),patch.object(r.os,'killpg') as kill:

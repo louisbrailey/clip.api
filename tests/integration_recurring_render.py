@@ -137,7 +137,7 @@ try:
     check(req(path='/api/render', key=key, raw=b'', extra={'X-Render-Job': first['id'], 'X-Render-Lease': first['lease']})[0] == 409, 'schedule pause also fences generated media registration')
     check(edit(sid, production_kind='workflow', render_recipe=None, render_approved=False)[0] == 409, 'schedule output type cannot change after creation')
     second_time = int(time.time() * 1000) - 10000
-    recipe2 = dict(seconds=10, noise='brown', theme='forest')
+    recipe2 = dict(seconds=10, noise='brown', theme='forest', script='A short original narration for the revised forest video.')
     check(edit(sid, title='Revised recurring forest video', render_recipe=recipe2, render_approved=False)[0] == 400, 'editing a recipe requires renewed approval')
     check(edit(sid, title='Revised recurring forest video', render_recipe=recipe2, next_run=second_time, paused=False)[0] == 200, 'approved recipe revision applies to a future occurrence')
     check(job(first['id'])['render_spec'] == spec and job(first['id'])['title'] == payload['title'], 'claimed occurrence keeps its original saved recipe and title')
@@ -161,7 +161,7 @@ try:
             check(hashlib.sha256(video).hexdigest() == asset['sha256'] and asset['source_job'] == current['id'] and asset['rights'] == 'original', 'recurring video ' + str(index + 1) + ' retains verified original provenance')
             output = ROOT / ('outputs/ambient-recurring-' + ('ocean' if index == 0 else 'forest') + '.mp4')
             output.write_bytes(video)
-            subprocess.run([FFMPEG, '-hide_banner', '-loglevel', 'error', '-i', str(output), '-f', 'null', '-'], check=True, timeout=60, capture_output=True)
+            subprocess.run([FFMPEG, '-hide_banner', '-loglevel', 'error', '-i', str(output), '-map', '0:a', '-f', 'null', '-'], check=True, timeout=60, capture_output=True)
             check(True, 'recurring video ' + str(index + 1) + ' fully decodes')
             output.with_suffix('.rights.json').write_text(json.dumps({k: asset[k] for k in ('id', 'name', 'source_job', 'sha256', 'rights', 'evidence', 'expires')}, indent=2) + '\n')
             records.append(dict(job_id=current['id'], occurrence=current['occurrence'], recipe=json.loads(current['render_spec']), asset_id=asset['id'], sha256=asset['sha256'], bytes=len(video), output=output.name))

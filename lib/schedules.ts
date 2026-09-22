@@ -23,7 +23,8 @@ export async function expandSchedules(owner: string, mode: string) {
   }>();
   for (const candidate of candidates.results) {
     const id = crypto.randomUUID(),
-      seed = 1 + (crypto.getRandomValues(new Uint32Array(1))[0] % 2147483647);
+      rawSeed = crypto.getRandomValues(new Uint32Array(1))[0],
+      seed = Math.floor((rawSeed / 4294967296) * 2147483647) + 1;
     // One D1 transaction: create a snapshot, then move only its own occurrence.
     // Missed intervals coalesce into one run while preserving the original cadence.
     await db().batch([

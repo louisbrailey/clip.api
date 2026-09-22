@@ -314,6 +314,7 @@ export async function POST(request: Request) {
           seconds: ambientSpec.shape.seconds,
           noise: ambientSpec.shape.noise,
           theme: ambientSpec.shape.theme,
+          script: ambientSpec.shape.script,
           scheduled: z.number().int().nonnegative(),
           approved: z.literal(true),
         })
@@ -322,6 +323,7 @@ export async function POST(request: Request) {
         seconds: v.seconds,
         noise: v.noise,
         theme: v.theme,
+        script: v.script,
         seed: 1 + (crypto.getRandomValues(new Uint32Array(1))[0] % 2147483647),
       });
       const saved = await db().batch([
@@ -359,7 +361,8 @@ export async function POST(request: Request) {
           previous.scheduled !== v.scheduled ||
           recipe?.seconds !== v.seconds ||
           recipe.noise !== v.noise ||
-          recipe.theme !== v.theme
+          recipe.theme !== v.theme ||
+          recipe.script !== v.script
         )
           throw new ApiError(
             "This request already saved a different recipe. Reopen Create ambient video to queue another video.",
