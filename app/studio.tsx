@@ -1,6 +1,6 @@
 "use client";
 import { xCaption } from "@/lib/x-text";
-import { useState, useRef, type FormEvent, type ReactNode } from "react";
+import { useState, type FormEvent, type ReactNode } from "react";
 import {
   QueryClient,
   QueryClientProvider,
@@ -12,8 +12,6 @@ import {
   CalendarClock,
   ArrowDownToLine,
   ArrowUpRight,
-  AudioLines,
-  Box,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -21,29 +19,25 @@ import {
   Cpu,
   Download,
   Film,
-  Gamepad2,
   GitBranch,
   Layers3,
   ListTodo,
   Loader2,
-  Maximize2,
-  Minus,
   Network,
   Pause,
   Play,
   Plus,
   Radio,
-  RotateCcw,
   Search,
   Settings2,
   ShieldCheck,
   Sparkles,
-  Target,
   Upload,
   Users,
   X,
   Zap,
 } from "lucide-react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -57,12 +51,9 @@ import {
   lanes,
   platformInfo,
   platforms,
-  projectedPoint,
   type Agent,
   type Job,
   type State,
-  type Account,
-  type Asset,
   type Schedule,
 } from "@/lib/domain";
 
@@ -228,7 +219,7 @@ function ControlRoom({ displayName }: { displayName: string }) {
     e.preventDefault();
     const f = new FormData(e.currentTarget),
       v = Object.fromEntries(f);
-    let body: Record<string, unknown> = { action, ...v };
+    const body: Record<string, unknown> = { action, ...v };
     if (action === "workflow")
       body.scheduled = v.scheduled
         ? new Date(String(v.scheduled)).getTime()
@@ -320,19 +311,19 @@ function ControlRoom({ displayName }: { displayName: string }) {
     }
   }
   const workerOnline =
-    !!s?.settings.worker_seen && Date.now() - s.settings.worker_seen < 90000;
+    !!s?.settings.worker_seen && !!s?.now && s.now - s.settings.worker_seen < 90000;
   const currentJob = job ? s?.jobs.find((j) => j.id === job.id) || job : null;
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <a className="brand" href="/" aria-label="Constellation home">
+        <Link className="brand" href="/" aria-label="Constellation home">
           <span className="brand-mark">
             <Sparkles size={23} />
           </span>
           <span>
             constellation<span className="brand-sub">CREATIVE OPERATIONS</span>
           </span>
-        </a>
+        </Link>
         <div className="workspace-switch">
           <span className="avatar">LB</span>
           <div>
@@ -1457,7 +1448,11 @@ function ControlRoom({ displayName }: { displayName: string }) {
                 value={
                   publishAccount?.platform === "x"
                     ? "x-account"
-                    : "youtube-private"
+                    : publishAccount?.platform === "instagram"
+                      ? "instagram-reel"
+                      : publishAccount?.platform === "threads"
+                        ? "threads-post"
+                        : "youtube-private"
                 }
               />
               <Field label="Approved source media">
@@ -1483,7 +1478,9 @@ function ControlRoom({ displayName }: { displayName: string }) {
                 label={
                   publishAccount?.platform === "x"
                     ? "Exact X post text"
-                    : "Exact description"
+                    : publishAccount?.platform === "threads"
+                      ? "Exact Threads post text"
+                      : "Exact caption or description"
                 }
               >
                 <textarea
@@ -1505,10 +1502,29 @@ function ControlRoom({ displayName }: { displayName: string }) {
               <Field label="Publication time (local, optional)">
                 <Input type="datetime-local" name="scheduled" />
               </Field>
+              {publishAccount?.platform === "threads" && (
+                <Field label="Public HTTPS media URL">
+                  <Input
+                    type="url"
+                    name="media_url"
+                    minLength={12}
+                    maxLength={2000}
+                    required
+                    placeholder="https://staging.example.com/video.mp4"
+                  />
+                  <small>
+                    Threads pulls the video from this approved public staging URL.
+                  </small>
+                </Field>
+              )}
               <div className="inset-note">
                 {publishAccount?.platform === "x"
                   ? "This creates a real X post using the account’s existing audience settings and may be public. The post text above is published exactly; the queue title is internal."
-                  : "YouTube visibility is private. Review the result in YouTube Studio before making it public. Account OAuth must match the registered channel ID."}
+                  : publishAccount?.platform === "instagram"
+                    ? "This uploads a reel through the approved Instagram professional account and Meta application. Instagram’s product settings determine the result."
+                    : publishAccount?.platform === "threads"
+                      ? "This creates a real Threads post after the approved staging URL, text, quota and account identity are verified. It may be public."
+                      : "YouTube visibility is private. Review the result in YouTube Studio before making it public. Account OAuth must match the registered channel ID."}
               </div>
               {publishAccount?.platform === "x" && (
                 <label className="checkbox" key={"ai-" + publishAccount.id}>

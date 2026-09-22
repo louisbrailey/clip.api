@@ -17,7 +17,7 @@ from unittest.mock import patch
 ROOT=Path(__file__).parents[1];BASE='http://localhost:5173'
 loader=importlib.util.spec_from_file_location('render_http_runtime',ROOT/'worker/runtime.py');r=importlib.util.module_from_spec(loader);loader.loader.exec_module(r)
 jar=http.cookiejar.CookieJar();urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar)).open(BASE+'/signin-with-chatgpt?return_to=/').read()
-COOKIE='; '.join(c.name+'='+c.value for c in jar);checks=0
+COOKIE='; '.join(c.name+'='+c.value for c in jar);checks=0;FFMPEG=os.environ['FFMPEG_BIN']
 def check(ok,label):
     global checks
     assert ok,label;checks+=1;print('PASS',label)
@@ -60,7 +60,7 @@ try:
     check(req(raw=b'',path='/api/render',key=key,extra={'X-Render-Job':jid,'X-Render-Lease':j['lease']})[0]==409,'ancestor pause also stops media registration')
     ambient=next(a for a in req()[1]['agents'] if a['id']=='ambient');action('agent',**dict(ambient,paused=False))
     media=(ROOT/'outputs/ambient-pink-noise.mp4').read_bytes();digest=hashlib.sha256(media).hexdigest()
-    with patch.dict(os.environ,{'PATH':os.environ.get('PATH',''),'FFMPEG_BIN':os.environ['FFMPEG_BIN']},clear=True):
+    with patch.dict(os.environ,{'PATH':os.environ.get('PATH',''),'FFMPEG_BIN':FFMPEG},clear=True):
         portal=r.Portal(BASE,key)
         try:portal.render_output(jid,j['lease'],media,'0'*64);rejected=False
         except r.RuntimeFailure:rejected=True
@@ -82,7 +82,7 @@ try:
         check(hashlib.sha256(video).hexdigest()==asset['sha256'],'downloaded video matches persisted provenance digest')
         check(asset['source_job']==actual and asset['rights']=='original' and asset['expires'] is None,'generated asset records its originating job and original rights')
         output=ROOT/'outputs/ambient-queued-ocean.mp4';output.write_bytes(video)
-        subprocess.run([os.environ['FFMPEG_BIN'],'-hide_banner','-loglevel','error','-i',str(output),'-f','null','-'],check=True,timeout=60,capture_output=True)
+        subprocess.run([FFMPEG,'-hide_banner','-loglevel','error','-i',str(output),'-f','null','-'],check=True,timeout=60,capture_output=True)
         check(True,'real generated video fully decodes with FFmpeg')
         output.with_suffix('.rights.json').write_text(json.dumps({k:asset[k] for k in ('id','name','source_job','sha256','rights','evidence','expires')},indent=2)+'\n')
         check(not any(x['kind']=='publish' and x['asset']==aid for x in req()[1]['jobs']),'render completion does not approve or enqueue publication')

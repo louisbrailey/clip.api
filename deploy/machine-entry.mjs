@@ -3,7 +3,7 @@
  * This does not bypass Sites access controls or provision service access.
  */
 import application from "../dist/server/index.js";
-export default {
+const machineEntry = {
   async fetch(request, env, context) {
     const url = new URL(request.url);
     const permitted =
@@ -30,3 +30,5 @@ export default {
     return application.fetch(new Request(request, { headers }), env, context);
   },
 };
+
+export default machineEntry;

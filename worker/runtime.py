@@ -306,6 +306,167 @@ def x_media_id(value):
         raise RuntimeFailure('X returned an invalid media identifier')
     return value
 
+
+def meta_token(account, platform):
+    ref = account.get('credential_ref', '')
+    if not re.fullmatch(r'[A-Z][A-Z0-9_]{2,79}', ref):
+        raise RuntimeFailure('Invalid Meta credential reference')
+    try: config = json.loads(os.environ.get(ref, '{}'))
+    except ValueError: raise RuntimeFailure('Meta credential configuration is not valid JSON') from None
+    token = config.get('access_token') if isinstance(config, dict) else None
+    if not isinstance(token, str) or not re.fullmatch(r'[!-~]{1,4096}', token):
+        raise RuntimeFailure('Meta OAuth access token is missing on this worker')
+    return token
+
+def meta_user_endpoint(platform, token):
+    fields = 'id' + (',username' if platform == 'threads' else '')
+    return 'https://graph.threads.net/v1.0/me?fields=' + fields if platform == 'threads' else 'https://graph.facebook.com/v24.0/me?fields=' + fields
+
+def meta_account_check(account, platform, token):
+    external = account.get('external_id', '')
+    if not isinstance(external, str) or not re.fullmatch(r'[0-9]{1,19}', external):
+        raise RuntimeFailure('Register the numeric Meta account ID, not a handle, for account verification')
+    response, _, _ = json_http(meta_user_endpoint(platform, token))
+    identity = response.get('id') if isinstance(response, dict) else None
+    if identity != external:
+        raise RuntimeFailure('Meta OAuth token does not belong to the registered account')
+    return external
+
+def meta_quota(account_id, platform, token):
+    path = 'content_publishing_limit_threads' if platform == 'threads' else 'content_publishing_limit'
+    host = 'https://graph.threads.net/v1.0/' if platform == 'threads' else 'https://graph.facebook.com/v24.0/'
+    response, _, _ = json_http(host + account_id + '/' + path, headers={'Authorization': 'Bearer ' + token})
+    if not isinstance(response, dict) or response.get('error'):
+        raise RuntimeFailure('Meta quota check failed; review account access')
+    usage = response.get('quota_usage', response.get('data', [{}])[0].get('quota_usage') if isinstance(response.get('data'), list) else None)
+    config = response.get('config', response.get('data', [{}])[0].get('config') if isinstance(response.get('data'), list) else None)
+    if not isinstance(usage, (int, float)) or usage < 0:
+        raise RuntimeFailure('Meta quota response is missing current usage')
+    limit = None
+    if isinstance(config, dict):
+        value = config.get('quota_total', config.get('limit'))
+        if isinstance(value, (int, float)) and value > 0: limit = value
+    if limit is not None and usage >= limit:
+        raise RuntimeFailure('Meta account has reached today’s publishing quota')
+
+def publish_instagram(context, portal, lease_valid, journal):
+    j, account = context['job'], context.get('account')
+    if not account or account.get('platform') != 'instagram' or account.get('authorized') != 1 or j.get('approved') != 1 or j.get('kind') != 'publish':
+        raise RuntimeFailure('Instagram publication requires an approved task and authorized professional account')
+    if not isinstance(j.get('brief'), str) or not j['brief'].strip() or len(j['brief']) > 2200:
+        raise RuntimeFailure('Instagram caption is missing or oversized')
+    try: previous = journal.read(j['id'])
+    except RuntimeFailure:
+        raise UncertainUpload('Instagram publication journal is unreadable. Check the account before further action.') from None
+    receipt = previous.get('receipt', '')
+    if previous.get('phase') in ('publish-starting', 'provider-accepted'):
+        if previous.get('phase') == 'provider-accepted' and isinstance(receipt, str) and re.fullmatch(r'instagram-media:[0-9]{1,30}', receipt):
+            return {'status': 'succeeded', 'result': 'Existing Instagram publication receipt recovered.', 'receipt': receipt, 'tokens': 0}
+        raise UncertainUpload('Instagram publication was interrupted. Check the account before taking further action.')
+    token = meta_token(account, 'instagram')
+    if os.environ.get('CONSTELLATION_DEBUG') == '1': print('DEBUG_TOKEN_LOADED')
+    token_check = json.loads(os.environ.get('INSTAGRAM_FIXTURE', '{}')).get('access_token')
+    if os.environ.get('CONSTELLATION_DEBUG') == '1': print('DEBUG_TOKEN',token==token_check)
+    account_id = meta_account_check(account, 'instagram', token)
+    if not lease_valid(): raise RuntimeFailure('Lease could not be renewed; Instagram dispatch stopped')
+    portal.call('preflight', id=j['id'], lease=j['lease'])
+    video = portal.media(j['asset'])
+    meta_quota(account_id, 'instagram', token)
+    if not lease_valid(): raise RuntimeFailure('Lease lost before Instagram upload')
+    portal.call('preflight', id=j['id'], lease=j['lease'])
+    endpoint = 'https://rupload.facebook.com/ig-api-upload/' + account_id + '/resumable-upload-phase'
+    headers = {'Authorization': 'OAuth ' + token, 'Content-Type': 'application/json'}
+    start, _, _ = json_http(endpoint, method='POST', body={'file_type': 'video', 'upload_phase': 'start', 'media_type': 'REELS', 'x-entity-length': len(video), 'x-entity-type': 'video/mp4', 'x-entity-name': 'constellation.mp4', 'offset': 0}, headers=headers)
+    upload_id = start.get('upload_id') if isinstance(start, dict) else None
+    if not isinstance(upload_id, str) or not re.fullmatch(r'[0-9]{1,30}', upload_id):
+        raise UncertainUpload('Instagram upload session response was unclear. Check the account before retrying.')
+    journal.write(j['id'], {'phase': 'upload-session', 'upload_id': upload_id, 'account': account_id, 'at': time.time()})
+    try:
+        transferred, _, _ = json_http(endpoint, method='POST', body={'file_type': 'video', 'upload_phase': 'transfer', 'media_type': 'REELS', 'upload_id': upload_id, 'offset': 0, 'x-entity-length': len(video), 'x-entity-type': 'video/mp4', 'x-entity-name': 'constellation.mp4', 'x-entity-file': base64.b64encode(video).decode()}, headers=headers, timeout=180)
+        if not isinstance(transferred, dict) or transferred.get('upload_id') not in (None, upload_id) or transferred.get('success') not in (None, True):
+            raise UncertainUpload('Instagram upload response was unclear. Check the account before retrying.')
+        if not lease_valid(): raise RuntimeFailure('Lease lost before Instagram upload finish')
+        portal.call('preflight', id=j['id'], lease=j['lease'])
+        finish, _, _ = json_http(endpoint, method='POST', body={'file_type': 'video', 'upload_phase': 'finish', 'media_type': 'REELS', 'upload_id': upload_id}, headers=headers)
+        if not isinstance(finish, dict) or finish.get('upload_id') not in (None, upload_id):
+            raise UncertainUpload('Instagram upload finish response was unclear. Check the account before retrying.')
+        if not lease_valid(): raise RuntimeFailure('Lease lost before Instagram publication')
+        portal.call('preflight', id=j['id'], lease=j['lease'])
+        journal.write(j['id'], {'phase': 'publish-starting', 'upload_id': upload_id, 'account': account_id, 'at': time.time()})
+        created, _, _ = json_http('https://graph.facebook.com/v24.0/' + account_id + '/media', method='POST', body={'caption': j['brief'], 'media_type': 'REELS', 'share_to_feed': True, 'upload_id': upload_id}, headers={'Authorization': 'Bearer ' + token})
+        container = created.get('id') if isinstance(created, dict) else None
+        if not isinstance(container, str) or not re.fullmatch(r'[0-9]{1,30}', container):
+            raise RuntimeFailure('Instagram media container was missing')
+        published, _, _ = json_http('https://graph.facebook.com/v24.0/' + account_id + '/media_publish', method='POST', body={'creation_id': container}, headers={'Authorization': 'Bearer ' + token})
+        media = published.get('id') if isinstance(published, dict) else None
+        if not isinstance(media, str) or not re.fullmatch(r'[0-9]{1,30}', media):
+            raise RuntimeFailure('Instagram publication receipt was missing')
+        receipt = 'instagram-media:' + media
+        journal.write(j['id'], {'phase': 'provider-accepted', 'receipt': receipt, 'at': time.time()})
+        return {'status': 'succeeded', 'result': 'Instagram reel uploaded through the approved professional account. Check Instagram Studio for final visibility and review state.', 'receipt': receipt, 'tokens': 0}
+    except UncertainUpload: raise
+    except Exception:
+        raise UncertainUpload('Instagram publication outcome is uncertain. Check the account before taking further action.') from None
+
+def publish_threads(context, portal, lease_valid, journal):
+    j, account = context['job'], context.get('account')
+    if not account or account.get('platform') != 'threads' or account.get('authorized') != 1 or j.get('approved') != 1 or j.get('kind') != 'publish':
+        raise RuntimeFailure('Threads publication requires an approved task and authorized account')
+    text = j.get('brief')
+    if not isinstance(text, str) or not text.strip() or len(text) > 500:
+        raise RuntimeFailure('Threads post text is missing or exceeds 500 characters')
+    media_url = j.get('media_url')
+    try: parsed = urllib.parse.urlparse(media_url or '')
+    except ValueError: parsed = None
+    if not parsed or parsed.scheme != 'https' or not parsed.hostname or parsed.username or parsed.password or parsed.hostname in ('localhost', 'localhost.localdomain'):
+        raise RuntimeFailure('Threads requires the approved public HTTPS media URL')
+    try: previous = journal.read(j['id'])
+    except RuntimeFailure:
+        raise UncertainUpload('Threads publication journal is unreadable. Check the account before further action.') from None
+    receipt = previous.get('receipt', '')
+    if previous.get('phase') in ('publish-starting', 'provider-accepted'):
+        if previous.get('phase') == 'provider-accepted' and isinstance(receipt, str) and re.fullmatch(r'threads-media:[0-9]{1,30}', receipt):
+            return {'status': 'succeeded', 'result': 'Existing Threads publication receipt recovered.', 'receipt': receipt, 'tokens': 0}
+        raise UncertainUpload('Threads publication was interrupted. Check the account before taking further action.')
+    token = meta_token(account, 'threads')
+    account_id = meta_account_check(account, 'threads', token)
+    headers = {'Authorization': 'Bearer ' + token}
+    if not lease_valid(): raise RuntimeFailure('Lease could not be renewed; Threads dispatch stopped')
+    portal.call('preflight', id=j['id'], lease=j['lease'])
+    meta_quota(account_id, 'threads', token)
+    if not lease_valid(): raise RuntimeFailure('Lease lost before Threads container creation')
+    portal.call('preflight', id=j['id'], lease=j['lease'])
+    container, _, _ = json_http('https://graph.threads.net/v1.0/' + account_id + '/threads', method='POST', body={'media_type': 'VIDEO', 'video_url': media_url, 'text': text}, headers=headers)
+    container_id = container.get('id') if isinstance(container, dict) else None
+    if not isinstance(container_id, str) or not re.fullmatch(r'[0-9]{1,30}', container_id):
+        raise UncertainUpload('Threads container response was unclear. Check the account before retrying.')
+    journal.write(j['id'], {'phase': 'container-created', 'container_id': container_id, 'account': account_id, 'at': time.time()})
+    try:
+        deadline = time.monotonic() + 600
+        for _ in range(120):
+            if not lease_valid(): raise RuntimeFailure('Lease lost while Threads prepared media')
+            status, _, _ = json_http('https://graph.threads.net/v1.0/' + container_id + '?fields=status,error_message', headers=headers)
+            state = status.get('status') if isinstance(status, dict) else None
+            if state == 'FINISHED': break
+            if state not in ('IN_PROGRESS', 'QUEUED'):
+                raise RuntimeFailure('Threads rejected the staged media; review video requirements')
+            time.sleep(min(5, max(1, status.get('check_after_secs', 2))))
+            if time.monotonic() >= deadline: raise RuntimeFailure('Threads media preparation exceeded its time limit')
+        else: raise RuntimeFailure('Threads media preparation exceeded its polling limit')
+        if not lease_valid(): raise RuntimeFailure('Lease lost before Threads publication')
+        portal.call('preflight', id=j['id'], lease=j['lease'])
+        journal.write(j['id'], {'phase': 'publish-starting', 'container_id': container_id, 'account': account_id, 'at': time.time()})
+        published, _, _ = json_http('https://graph.threads.net/v1.0/' + account_id + '/threads_publish', method='POST', body={'creation_id': container_id}, headers=headers)
+        media = published.get('id') if isinstance(published, dict) else None
+        if not isinstance(media, str) or not re.fullmatch(r'[0-9]{1,30}', media):
+            raise RuntimeFailure('Threads publication receipt was missing')
+        receipt = 'threads-media:' + media
+        journal.write(j['id'], {'phase': 'provider-accepted', 'receipt': receipt, 'at': time.time()})
+        return {'status': 'succeeded', 'result': 'Video post created through the approved Threads account. Verify it in Threads before changing account settings.', 'receipt': receipt, 'tokens': 0}
+    except UncertainUpload: raise
+    except Exception:
+        raise UncertainUpload('Threads publication outcome is uncertain. Check the account before taking further action.') from None
+
 def publish_x(context, portal, lease_valid, journal):
     j, account = context['job'], context.get('account')
     if not account or account.get('platform') != 'x' or account.get('authorized') != 1 or j.get('approved') != 1 or j.get('kind') != 'publish':
@@ -430,6 +591,8 @@ def publish(context, portal, lease_valid, journal):
     platform = (context.get('account') or {}).get('platform')
     if platform == 'youtube': return publish_youtube(context, portal, lease_valid, journal)
     if platform == 'x': return publish_x(context, portal, lease_valid, journal)
+    if platform == 'instagram': return publish_instagram(context, portal, lease_valid, journal)
+    if platform == 'threads': return publish_threads(context, portal, lease_valid, journal)
     raise RuntimeFailure('This platform requires a manual publishing handoff')
 
 

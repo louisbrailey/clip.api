@@ -48,7 +48,7 @@ export async function GET(request: Request) {
       if (lane) z.enum(lanes).parse(lane);
       const r = await db().batch([
         sql(
-          "SELECT id,handle,external_id,platform FROM accounts WHERE owner=? AND (?!='publish' OR platform IN ('youtube','x')) AND authorized=1 AND (paused=0 OR ?='routing') AND (?='' OR lane=?) AND (instr(lower(handle),lower(?))>0 OR instr(external_id,?)>0) ORDER BY created DESC,id LIMIT 60 OFFSET ?",
+          "SELECT id,handle,external_id,platform FROM accounts WHERE owner=? AND (?!='publish' OR platform IN ('youtube','x','instagram','threads')) AND authorized=1 AND (paused=0 OR ?='routing') AND (?='' OR lane=?) AND (instr(lower(handle),lower(?))>0 OR instr(external_id,?)>0) ORDER BY created DESC,id LIMIT 60 OFFSET ?",
           owner,
           purpose,
           purpose,
@@ -59,7 +59,7 @@ export async function GET(request: Request) {
           offset,
         ),
         sql(
-          "SELECT COUNT(*) AS n FROM accounts WHERE owner=? AND (?!='publish' OR platform IN ('youtube','x')) AND authorized=1 AND (paused=0 OR ?='routing') AND (?='' OR lane=?) AND (instr(lower(handle),lower(?))>0 OR instr(external_id,?)>0)",
+          "SELECT COUNT(*) AS n FROM accounts WHERE owner=? AND (?!='publish' OR platform IN ('youtube','x','instagram','threads')) AND authorized=1 AND (paused=0 OR ?='routing') AND (?='' OR lane=?) AND (instr(lower(handle),lower(?))>0 OR instr(external_id,?)>0)",
           owner,
           purpose,
           purpose,
@@ -701,9 +701,10 @@ export async function POST(request: Request) {
           scheduled: z.number().int().min(0),
           approved: z.literal(true),
           approval_scope: z
-            .enum(["youtube-private", "x-account"])
+            .enum(["youtube-private", "x-account", "instagram-reel", "threads-post"])
             .default("youtube-private"),
           made_with_ai: z.boolean().default(false),
+          media_url: z.string().url().max(2000).nullable().default(null),
         })
         .parse(body);
       const a = await sql(
@@ -723,13 +724,13 @@ export async function POST(request: Request) {
         v.asset,
       ).first<Asset>();
       if (!a || !m) throw new ApiError("Account or media not found", 404);
-      if (!["youtube", "x"].includes(a.platform))
+      if (!["youtube", "x", "instagram", "threads"].includes(a.platform))
         throw new ApiError(
-          "This platform currently requires a manual publishing handoff",
+          "This platform currently requires manual review rather than direct publishing",
         );
       if (
         v.approval_scope !==
-        (a.platform === "x" ? "x-account" : "youtube-private")
+        ({youtube:"youtube-private",x:"x-account",instagram:"instagram-reel",threads:"threads-post"})[a.platform]
       )
         throw new ApiError(
           "Review and approve the selected platform’s audience before scheduling",
@@ -741,6 +742,27 @@ export async function POST(request: Request) {
       if (a.platform === "x" && !xCaption(v.brief).valid)
         throw new ApiError(
           "X caption exceeds 280 weighted characters or contains invalid text",
+        );
+      if (a.platform === "instagram" && !/^[0-9]{1,19}$/.test(a.external_id))
+        throw new ApiError(
+          "Instagram publishing requires the numeric Instagram professional account ID",
+        );
+      if (a.platform === "instagram" && v.brief.length > 2200)
+        throw new ApiError("Instagram captions are limited to 2,200 characters");
+      if (a.platform === "threads") {
+        if (!/^[0-9]{1,19}$/.test(a.external_id))
+          throw new ApiError(
+            "Threads publishing requires the numeric Threads account ID",
+          );
+        if (!v.media_url || !v.media_url.startsWith("https://"))
+          throw new ApiError(
+            "Threads requires an approved public HTTPS media URL",
+          );
+        if (v.brief.length > 500)
+          throw new ApiError("Threads post text is limited to 500 characters");
+      } else if (v.media_url)
+        throw new ApiError(
+          "Public media URLs are only available for Threads publishing",
         );
       if (
         a.paused ||
@@ -771,11 +793,12 @@ export async function POST(request: Request) {
           mode: "live",
           approved: 1,
           made_with_ai: a.platform === "x" ? +v.made_with_ai : 0,
+          media_url: a.platform === "threads" ? v.media_url : null,
         }),
         event(
           owner,
           "approval",
-          `${a.platform === "x" ? "Approved X post to the account audience" : "Approved private YouTube upload"}: ${v.title}`,
+          `${{youtube:"Approved private YouTube upload",x:"Approved X post to the account audience",instagram:"Approved Instagram reel upload",threads:"Approved Threads media post"}[a.platform]}: ${v.title}`,
           id,
         ),
       ]);

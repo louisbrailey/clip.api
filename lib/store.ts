@@ -146,13 +146,18 @@ export async function state(
   const counts: Record<string, number> = {};
   for (const v of r[6].results) counts[v.status as string] = v.n as number;
   // Lease tokens and storage keys never go to the browser.
-  const visibleJobs = r[1].results.map(({ lease, owner: _owner, ...j }) => ({
-    ...j,
+  const hideFields = (row: Record<string, unknown>, fields: string[]) =>
+    Object.fromEntries(
+      Object.entries(row).filter(([key]) => !fields.includes(key)),
+    );
+  const visibleJobs = r[1].results.map((row) => ({
+    ...hideFields(row, ["lease", "owner"]),
     lease: null,
   }));
-  const visibleAssets = r[3].results.map(
-    ({ object_key, owner: _owner, ...a }) => ({ ...a, object_key: "" }),
-  );
+  const visibleAssets = r[3].results.map((row) => ({
+    ...hideFields(row, ["object_key", "owner"]),
+    object_key: "",
+  }));
   const agentCounts: Record<string, Record<string, number>> = {},
     laneCounts: Record<string, Record<string, number>> = {};
   for (const row of r[10].results) {
@@ -199,7 +204,7 @@ export function newJob(
   },
 ) {
   return sql(
-    "INSERT INTO jobs(id,owner,parent,depends,agent,title,brief,lane,mode,kind,status,created,scheduled,account,asset,approved,made_with_ai) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+    "INSERT INTO jobs(id,owner,parent,depends,agent,title,brief,lane,mode,kind,status,created,scheduled,account,asset,approved,made_with_ai,media_url) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
     j.id,
     owner,
     j.parent ?? null,
@@ -217,6 +222,7 @@ export function newJob(
     j.asset ?? null,
     j.approved ?? 0,
     j.made_with_ai ?? 0,
+    j.media_url ?? null,
   );
 }
 export async function sweep(owner: string) {

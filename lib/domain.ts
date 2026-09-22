@@ -20,14 +20,14 @@ export const platformInfo: Record<
   },
   instagram: {
     name: "Instagram",
-    support: "Manual handoff",
-    note: "Professional account and approved Meta permissions required. Direct publishing adapter is not included in this release.",
+    support: "Worker adapter",
+    note: "Direct reel publishing uses an approved resumable upload. Requires a professional account, approved Meta app, numeric Instagram account ID and OAuth publishing permission.",
     url: "https://developers.facebook.com/docs/instagram-platform/content-publishing",
   },
   threads: {
     name: "Threads",
-    support: "Manual handoff",
-    note: "Threads OAuth and publishing permissions required. Direct publishing adapter is not included in this release.",
+    support: "Worker adapter",
+    note: "Direct video posts use an approved Threads API app, account OAuth, quota checks, public HTTPS media staging and exact operator approval.",
     url: "https://developers.facebook.com/docs/threads/posts",
   },
   x: {
@@ -181,6 +181,7 @@ export type Job = {
   receipt: string;
   approved: number;
   made_with_ai: number;
+  media_url: string | null;
   render_spec: string | null;
   schedule_id: string | null;
   occurrence: number | null;

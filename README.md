@@ -2,7 +2,7 @@
 
 A private creative-operations portal for authorized social accounts. Astra delegates production work to studio leads, writers and editors. The operator can inspect the delegation tree, pause agents, edit instructions, set execution limits, schedule work, register accounts, upload source media and inspect the audit trail.
 
-This is a functioning first release with production-oriented queue safeguards. **It is not a verified 24/7 production deployment or a million-model system.** The portal and rehearsals work without external credentials. Live model execution, private YouTube uploads and X video posts require a configured worker, provider credentials and an authenticated machine connection. Instagram, Threads, TikTok and Snapchat currently use manual handoff; their direct publishing adapters are not implemented. No account creation, engagement amplification, scraping, or unauthorized clip reposting is included.
+This is a functioning first release with production-oriented queue safeguards. **It is not a verified 24/7 production deployment or a million-model system.** The portal and rehearsals work without external credentials. Live model execution, private YouTube uploads, X posts and Meta publishing require a configured worker, approved provider credentials and an authenticated machine connection. Instagram reels now use a direct resumable-upload worker adapter. Threads posts now use a direct worker adapter with an explicitly approved public HTTPS staging URL. TikTok and Snapchat remain manual handoff paths because their current provider approval models do not support the unattended setup here. No account creation, engagement amplification, scraping, or unauthorized clip reposting is included.
 
 ## What runs
 
@@ -14,6 +14,8 @@ This is a functioning first release with production-oriented queue safeguards. *
 - Original or licensed MP4 uploads to private R2 storage with provenance records and rights expiry.
 - YouTube OAuth refresh, channel-identity verification, resumable-session upload, private visibility, final preflight and provider receipts. Network-ambiguous uploads become `uncertain` and cannot be replayed automatically.
 - X user-identity verification, chunked video upload, processing checks and exact approved captions. X publication requires separate audience approval because a post may be public under the account’s settings. Refresh tokens persist privately across restarts; ambiguous post outcomes are held for review. Provider calls are fixture-validated only.
+- Instagram professional-account reels through Meta’s resumable upload path, with account identity and quota checks, exact captions and no replay after an ambiguous publication. Provider calls are fixture-validated only.
+- Threads video posts through a public HTTPS media staging URL, account identity and quota checks, container status checks and exact approved text. Ambiguous publication outcomes are held for review. Provider calls are fixture-validated only.
 - Queued original ambient-video production with an approved 10–300-second noise/color recipe, private library output and SHA-256 provenance. The worker performs actual FFmpeg rendering without model calls. Local licensed-clip trimming remains available separately.
 - Rehearsals explicitly labeled as deterministic fixtures; they call no models and publish nothing.
 
@@ -119,12 +121,14 @@ python3 tests/integration_schedules.py
 python3 tests/integration_machine.py
 python3 tests/integration_network.py
 python3 tests/integration_x.py
+python3 tests/integration_instagram.py
+python3 tests/integration_threads.py
 # FFmpeg must be on PATH, or set FFMPEG_BIN to its absolute executable path.
 python3 tests/integration_render.py
 python3 tests/integration_recurring_render.py
 ```
 
-The integration test is hardcoded to loopback. It creates test records, rotates and revokes the local test identity's worker key, and exercises simulated publication receipts. Never adapt it to a production account. Reset only disposable local test state if rerunning. The recurring-render release passes 134 worker/SQL/process tests, 3 official-parser tests and 215 local HTTP checks (42 workflow/media, 41 recurrence, 5 redirects, 46 network controls, 20 X, 27 queued-render and 34 recurring-render checks); see [verification evidence](docs/VERIFICATION.md). A disposable state directory can be passed to `node scripts/migrate-local.mjs /absolute/disposable/path` and selected when starting development with `CONSTELLATION_LOCAL_STATE=/absolute/disposable/path npm run dev`. Use a new directory for each full integration run.
+The integration test is hardcoded to loopback. It creates test records, rotates and revokes the local test identity's worker key, and exercises simulated publication receipts. Never adapt it to a production account. Reset only disposable local test state if rerunning. The Meta publishing release passes 144 worker/SQL/process/provider tests, 3 official-parser tests and 244 local HTTP checks (43 workflow/media, 41 recurrence, 5 redirects, 46 network controls, 20 X, 13 Instagram, 15 Threads, 27 queued-render and 34 recurring-render checks); see [verification evidence](docs/VERIFICATION.md). A disposable state directory can be passed to `node scripts/migrate-local.mjs /absolute/disposable/path` and selected when starting development with `CONSTELLATION_LOCAL_STATE=/absolute/disposable/path npm run dev`. Use a new directory for each full integration run.
 
 ## Operating boundaries
 

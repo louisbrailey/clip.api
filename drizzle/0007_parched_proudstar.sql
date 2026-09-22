@@ -1,0 +1,1 @@
+ALTER TABLE `jobs` ADD `media_url` text;

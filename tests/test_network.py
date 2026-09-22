@@ -79,7 +79,7 @@ def complete_child(c, owner='own', account_id=None, role='writer', nonce='won', 
 
 class NetworkTests(unittest.TestCase):
     def test_create_replay_and_capacity(self):
-        c = fixture()
+        c = fixture();self.addCleanup(c.close)
         check(create(c, 'custom') == 1, 'create')
         check(create(c, 'custom') == 0, 'creation replay is no-op')
         check(c.execute("SELECT agent_total FROM settings WHERE owner='own'").fetchone()[0] == 14, 'replay total unchanged')
@@ -90,7 +90,7 @@ class NetworkTests(unittest.TestCase):
 
     def test_assignment_retirement_orderings(self):
         for first in ['route', 'retire']:
-            c = fixture()
+            c = fixture();self.addCleanup(c.close)
             create(c, 'custom')
             if first == 'route':
                 check(route(c, 'custom') == 1, 'assignment accepted')
@@ -101,7 +101,7 @@ class NetworkTests(unittest.TestCase):
 
     def test_child_retirement_orderings(self):
         for first in ['child', 'retire']:
-            c = fixture()
+            c = fixture();self.addCleanup(c.close)
             create(c, 'parent')
             if first == 'child':
                 check(create(c, 'child', 'parent') == 1, 'child inserted')
@@ -111,7 +111,7 @@ class NetworkTests(unittest.TestCase):
                 check(create(c, 'child', 'parent') == 0, 'retirement first blocks child insertion')
 
     def test_restore_full_ancestry(self):
-        c = fixture()
+        c = fixture();self.addCleanup(c.close)
         create(c, 'parent')
         create(c, 'child', 'parent')
         check(lifecycle(c, 'child') == 1, 'child retired')
@@ -127,7 +127,7 @@ class NetworkTests(unittest.TestCase):
         check(c.execute("SELECT paused FROM agents WHERE owner='own' AND id='child'").fetchone()[0] == 1, 'restored child stays paused')
 
     def test_completion_routing_precedence(self):
-        c = fixture()
+        c = fixture();self.addCleanup(c.close)
         create(c, 'studio')
         create(c, 'override')
         aid = account(c)
@@ -146,7 +146,7 @@ class NetworkTests(unittest.TestCase):
         check(complete_child(c, requested_nonce='lost') is None, 'lost completion nonce creates no child')
 
     def test_completion_retirement_orderings(self):
-        c = fixture()
+        c = fixture();self.addCleanup(c.close)
         create(c, 'custom')
         route(c, 'custom')
         child = complete_child(c)
@@ -157,7 +157,7 @@ class NetworkTests(unittest.TestCase):
         check(complete_child(c)['agent'] == 'ambient-writer', 'future completion uses reset route after retirement')
 
     def test_tenancy_and_eligibility(self):
-        c = fixture()
+        c = fixture();self.addCleanup(c.close)
         create(c, 'custom', owner='other')
         check(route(c, 'custom') == 0, 'foreign agent rejected')
         check(create(c, 'child', parent='custom') == 0, 'foreign parent rejected')
@@ -172,7 +172,7 @@ class NetworkTests(unittest.TestCase):
 
     def test_unfinished_work_retirement(self):
         for status in ['queued', 'running', 'blocked', 'failed', 'uncertain', 'succeeded', 'cancelled']:
-            c = fixture()
+            c = fixture();self.addCleanup(c.close)
             create(c, 'custom')
             route(c, 'custom')
             child = complete_child(c)
@@ -181,7 +181,7 @@ class NetworkTests(unittest.TestCase):
             check(lifecycle(c, 'custom') == (1 if status in ['succeeded', 'cancelled'] else 0), 'retirement status ' + status)
 
     def test_atomic_creation_audit_rollback(self):
-        c=fixture()
+        c=fixture();self.addCleanup(c.close)
         c.executescript("CREATE TRIGGER fail_event BEFORE INSERT ON events BEGIN SELECT RAISE(ABORT,'fixture failure'); END;")
         audit=next(s for s in strings if s.startswith('INSERT INTO events'))
         with self.assertRaises(sqlite3.IntegrityError):
@@ -195,7 +195,7 @@ class NetworkTests(unittest.TestCase):
         self.assertEqual(c.execute("SELECT child_count FROM agents WHERE owner='own' AND id='ambient'").fetchone()[0],2)
 
     def test_creation_replay_does_not_duplicate_audit(self):
-        c=fixture();audit=next(s for s in strings if s.startswith('INSERT INTO events'))
+        c=fixture();self.addCleanup(c.close);audit=next(s for s in strings if s.startswith('INSERT INTO events'))
         for _ in range(2):
             with c:
                 c.execute(CREATE,('own','once','Once','writer','model',0,1,'instructions','writer','once','own','ambient'))
@@ -205,7 +205,7 @@ class NetworkTests(unittest.TestCase):
         self.assertEqual(c.execute('SELECT COUNT(*) FROM events').fetchone()[0],1)
 
     def test_deployed_core_backfill(self):
-        c=sqlite3.connect(':memory:');migrations=sorted((root/'drizzle').glob('*.sql'))
+        c=sqlite3.connect(':memory:');self.addCleanup(c.close);migrations=sorted((root/'drizzle').glob('*.sql'))
         for p in migrations[:3]:c.executescript(p.read_text())
         c.execute("INSERT INTO settings(owner) VALUES('legacy')")
         for aid,parent in [('astra',None),('ambient','astra'),('ambient-writer','ambient'),('ambient-editor','ambient')]:

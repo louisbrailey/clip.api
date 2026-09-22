@@ -122,6 +122,7 @@ export const jobs = sqliteTable(
     completion_hash: text(),
     approved: integer().notNull().default(0),
     made_with_ai: integer().notNull().default(0),
+    media_url: text(),
     render_spec: text(),
     schedule_id: text(),
     occurrence: integer(),

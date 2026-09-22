@@ -54,6 +54,14 @@ Inspect the video’s playback, audio, duration and rights record in the library
 
 The procedural audio uses FFmpeg’s noise source with fixed recipe parameters. [FFmpeg noise-source documentation](https://ffmpeg.org/ffmpeg-filters.html#anoisesrc).
 
+## Activate Instagram reels
+
+Use an approved Meta app and a user OAuth token with Instagram professional publishing permission. Store it only on the worker as JSON in the account's reference variable, for example `INSTAGRAM_AMBIENT={"access_token":"..."}`. Register the **numeric Instagram professional account ID**, not the Facebook Page ID or handle. The worker verifies the token's account identity and publishing quota, uploads the private library MP4 through Meta's resumable upload endpoint and publishes the exact approved caption. A lost publication response stays `uncertain`; inspect Instagram and record the provider receipt before any new publish request. Live Meta acceptance remains outstanding.
+
+## Activate Threads posts
+
+Use an approved Meta app and a Threads OAuth token with `threads_basic` and `threads_content_publish`. Store it only on the worker, for example `THREADS_AMBIENT={"access_token":"..."}`. Register the **numeric Threads account ID** returned by `/me`. Threads requires media at a public HTTPS URL; the approval form stores the exact staging URL with the job. Do not include a bearer token beyond the URL's own authorized staging token. The private Sites portal is not public staging. The worker verifies identity and quota, creates the container, waits for preparation, rechecks approval and publishes the exact text. Ambiguous publication outcomes require account inspection before a new publish request. Live Threads acceptance remains outstanding.
+
 ## Pauses, failures and receipts
 
 - **Pause studio:** stops new dispatch. A request already accepted by a provider can finish.
@@ -99,4 +107,4 @@ Back up D1 and R2 using the hosting provider's supported backup/export facilitie
 - Run `npm run test:worker` for worker safety, actual queue SQL and registry tests.
 - The local integration script requires a disposable local database and generated sample MP4. It rotates the development identity's worker key and creates fixture records. Do not run it on production.
 - Hosted smoke verification must use the authenticated owner's access. A successful deployment status proves artifact publication, not live model execution or social API approval.
-- Current direct publishing covers private YouTube uploads and explicitly approved X video posts; both provider paths are fixture-validated only. Other adapters, OAuth onboarding, automatic model infrastructure provisioning, retention automation, hard monetary limits, multi-host scale and operational SLA verification remain future work.
+- Current direct publishing covers private YouTube uploads, explicitly approved X video posts, Instagram reels and Threads posts; both provider paths are fixture-validated only. Other adapters, OAuth onboarding, automatic model infrastructure provisioning, retention automation, hard monetary limits, multi-host scale and operational SLA verification remain future work.

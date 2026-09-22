@@ -26,6 +26,7 @@ jar = http.cookiejar.CookieJar()
 urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar)).open(BASE + '/signin-with-chatgpt?return_to=/').read()
 COOKIE = '; '.join(c.name + '=' + c.value for c in jar)
 checks = 0
+FFMPEG = os.environ['FFMPEG_BIN']
 created = []
 
 
@@ -142,7 +143,7 @@ try:
     check(job(first['id'])['render_spec'] == spec and job(first['id'])['title'] == payload['title'], 'claimed occurrence keeps its original saved recipe and title')
     check(claim(key)[1]['job'] is None and schedule(sid)['generated_count'] == 1, 'unfinished first video holds the next occurrence')
     records = []
-    with patch.dict(os.environ, {'PATH': os.environ.get('PATH', ''), 'FFMPEG_BIN': os.environ['FFMPEG_BIN']}, clear=True):
+    with patch.dict(os.environ, {'PATH': os.environ.get('PATH', ''), 'FFMPEG_BIN': FFMPEG}, clear=True):
         portal = r.Portal(BASE, key)
         for index in range(2):
             context = first_context if index == 0 else claim(key)[1]
@@ -160,7 +161,7 @@ try:
             check(hashlib.sha256(video).hexdigest() == asset['sha256'] and asset['source_job'] == current['id'] and asset['rights'] == 'original', 'recurring video ' + str(index + 1) + ' retains verified original provenance')
             output = ROOT / ('outputs/ambient-recurring-' + ('ocean' if index == 0 else 'forest') + '.mp4')
             output.write_bytes(video)
-            subprocess.run([os.environ['FFMPEG_BIN'], '-hide_banner', '-loglevel', 'error', '-i', str(output), '-f', 'null', '-'], check=True, timeout=60, capture_output=True)
+            subprocess.run([FFMPEG, '-hide_banner', '-loglevel', 'error', '-i', str(output), '-f', 'null', '-'], check=True, timeout=60, capture_output=True)
             check(True, 'recurring video ' + str(index + 1) + ' fully decodes')
             output.with_suffix('.rights.json').write_text(json.dumps({k: asset[k] for k in ('id', 'name', 'source_job', 'sha256', 'rights', 'evidence', 'expires')}, indent=2) + '\n')
             records.append(dict(job_id=current['id'], occurrence=current['occurrence'], recipe=json.loads(current['render_spec']), asset_id=asset['id'], sha256=asset['sha256'], bytes=len(video), output=output.name))

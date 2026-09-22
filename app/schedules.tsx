@@ -271,6 +271,7 @@ export function ScheduleForm({
   const [kind, setKind] = useState<"workflow" | "ambient">(
     r?.production_kind || "workflow",
   );
+  const [defaultRun] = useState(() => localDate(r?.next_run || Date.now()));
   let recipe: { seconds?: number; noise?: string; theme?: string } = {};
   try {
     recipe = JSON.parse(r?.render_recipe || "{}");
@@ -415,7 +416,7 @@ export function ScheduleForm({
           <Input
             name="next_run"
             type="datetime-local"
-            defaultValue={localDate(r?.next_run || Date.now())}
+            defaultValue={defaultRun}
             required
           />
           <small>
