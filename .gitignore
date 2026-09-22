@@ -50,3 +50,13 @@ __pycache__/
 *.pyc
 *.tsbuildinfo
 /.venv/
+
+# Local developer tooling and private machine state
+.toolkit-runs/
+.env
+.env.*
+!.env.example
+!.env.worker.example
+*.pem
+*.key
+.DS_Store

@@ -1,0 +1,13 @@
+{
+  "project": "Clip.api / Constellation Studio",
+  "entry_points": [
+    "README.md"
+  ],
+  "commands": {
+    "setup": "npm run install:ci",
+    "test": "python3 -m unittest discover -s tests -q",
+    "lint": "npm run lint",
+    "types": "npm run typecheck",
+    "build": "npm run build"
+  }
+}
