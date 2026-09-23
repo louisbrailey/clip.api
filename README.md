@@ -16,7 +16,7 @@ This is a functioning first release with production-oriented queue safeguards. *
 - X user-identity verification, chunked video upload, processing checks and exact approved captions. X publication requires separate audience approval because a post may be public under the account’s settings. Refresh tokens persist privately across restarts; ambiguous post outcomes are held for review. Provider calls are fixture-validated only.
 - Instagram professional-account reels through Meta’s resumable upload path, with account identity and quota checks, exact captions and no replay after an ambiguous publication. Provider calls are fixture-validated only.
 - Threads video posts through a public HTTPS media staging URL, account identity and quota checks, container status checks and exact approved text. Ambiguous publication outcomes are held for review. Provider calls are fixture-validated only.
-- Queued original ambient-video production with an approved 10–300-second noise/color recipe, private library output and SHA-256 provenance. The worker performs actual FFmpeg rendering without model calls. Local licensed-clip trimming remains available separately.
+- Queued original ambient-video production with an approved 10–300-second noise/color recipe, optional operator-approved local narration, private library output and SHA-256 provenance. The worker performs actual FFmpeg rendering without model calls. Local licensed-clip trimming remains available separately.
 - Rehearsals explicitly labeled as deterministic fixtures; they call no models and publish nothing.
 
 ## Local start
@@ -82,9 +82,9 @@ Register the account’s numeric X user ID and a credential reference, then supp
 
 ## Rendering media
 
-In **Content library**, choose **Create ambient video**. Name the video, choose white/pink/brown noise, a night/ocean/forest color, duration and optional start time, then approve the recipe. A connected worker creates a portrait MP4 and saves it directly in the library. **Open generated video** is available in its task details, and the library exports the rights record and digest. This controlled rendering task uses the built-in Ambient editorial agent’s queue and inherited pauses; it does not invoke Astra or a specialist model. Recurring model workflows produce text artifacts. Configure recurring ambient videos in **Schedules → New schedule → Original ambient video**. Each occurrence saves its recipe and a server-generated seed; retries preserve both.
+In **Content library**, choose **Create ambient video**. Name the video, choose white/pink/brown noise, a night/ocean/forest color, duration, optional narration script and optional start time, then approve the recipe. A connected worker creates a portrait MP4 and saves it directly in the library. **Open generated video** is available in its task details, and the library exports the rights record and digest. This controlled rendering task uses the built-in Ambient editorial agent’s queue and inherited pauses; it does not invoke Astra or a specialist model. Recurring model workflows produce text artifacts. Configure recurring ambient videos in **Schedules → New schedule → Original ambient video**. Narration uses a reviewed operator script and a fixed locally installed system voice; each occurrence saves its recipe and a server-generated seed, and retries preserve both.
 
-No OpenAI or social OAuth key is needed for rendering alone; the worker still needs the portal’s machine credentials and FFmpeg. Each worker process runs at most one render at a time, within its overall task cap. The Docker definition now installs FFmpeg, but container execution remains unverified here. Lost media-upload responses recover the canonical library asset on a bounded retry. The original recipe is immutable; reopening the form creates a new request. Publishing remains separately approved.
+No OpenAI or social OAuth key is needed for rendering alone; the worker still needs the portal’s machine credentials and FFmpeg. Narration additionally needs `say`, `espeak`, or `espeak-ng`. Each worker process runs at most one render at a time, within its overall task cap. The Docker definition installs FFmpeg and `espeak-ng`, but container execution remains unverified here. Lost media-upload responses recover the canonical library asset on a bounded retry. The original recipe is immutable; reopening the form creates a new request. Publishing remains separately approved.
 
 For a standalone local render:
 
@@ -102,7 +102,7 @@ This creates an MP4 and a matching `.rights.json` with a SHA-256 digest. For a l
 .venv/bin/python worker/render.py outputs/licensed-edit.mp4 --source /absolute/path/source.mp4 --start 20 --seconds 30 --rights-evidence "License reference and permitted use"
 ```
 
-Upload the resulting video through **Content library**, recording its rights evidence. This release does not automatically connect LLM scripts to a speech/video-generation service. Each video must be original or licensed and reviewed for the intended use.
+Upload the resulting video through **Content library**, recording its rights evidence. This release does not automatically send LLM output to a speech or video-generation service. Each video must be original or licensed and reviewed for the intended use.
 
 ## Validation
 
@@ -126,9 +126,10 @@ python3 tests/integration_threads.py
 # FFmpeg must be on PATH, or set FFMPEG_BIN to its absolute executable path.
 python3 tests/integration_render.py
 python3 tests/integration_recurring_render.py
+python3 tests/integration_narration.py
 ```
 
-The integration test is hardcoded to loopback. It creates test records, rotates and revokes the local test identity's worker key, and exercises simulated publication receipts. Never adapt it to a production account. Reset only disposable local test state if rerunning. The Meta publishing release passes 144 worker/SQL/process/provider tests, 3 official-parser tests and 244 local HTTP checks (43 workflow/media, 41 recurrence, 5 redirects, 46 network controls, 20 X, 13 Instagram, 15 Threads, 27 queued-render and 34 recurring-render checks); see [verification evidence](docs/VERIFICATION.md). A disposable state directory can be passed to `node scripts/migrate-local.mjs /absolute/disposable/path` and selected when starting development with `CONSTELLATION_LOCAL_STATE=/absolute/disposable/path npm run dev`. Use a new directory for each full integration run.
+The integration test is hardcoded to loopback. It creates test records, rotates and revokes the local test identity's worker key, and exercises simulated publication receipts. Never adapt it to a production account. Reset only disposable local test state if rerunning. The current release passes 147 worker/SQL/process/provider tests, 3 official-parser tests and 257 local HTTP checks, including 13 narration checks; see [verification evidence](docs/VERIFICATION.md). A disposable state directory can be passed to `node scripts/migrate-local.mjs /absolute/disposable/path` and selected when starting development with `CONSTELLATION_LOCAL_STATE=/absolute/disposable/path npm run dev`. Use a new directory for each full integration run.
 
 ## Operating boundaries
 

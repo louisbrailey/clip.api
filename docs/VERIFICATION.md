@@ -48,6 +48,12 @@ The reproducible local benchmark populated **1,000,000 lightweight agent definit
 
 These measurements are not a live D1 load test, million-job test, concurrency benchmark, deployment SLA or million-model runtime. Existing provider credentials, OAuth, host, real publication and browser interaction QA limitations remain. Source compilation and the production build passed for this release; live provider activation remains separate.
 
+## Narrated original-media release
+
+**147 worker/SQL/process/provider tests, 3 official-parser tests and 257 local HTTP checks passed (407 total).** The narration integration used a fresh disposable portal database, a fresh worker journal, the locally installed `say` voice and an explicit FFmpeg binary. It verified schedule creation and exact replay, script-length rejection, account and editor pauses, stale lease rejection, fresh-worker render/registration/completion, downloaded SHA-256, narration-specific original-rights evidence and full audio decode.
+
+The generated output is `outputs/ambient-recurring-narrated.mp4` with its matching rights record. No provider, model, OAuth, live social publication, Docker host or hosted worker request was made. The deployed portal artifact includes the validated source revision; live worker activation remains credential- and host-gated.
+
 
 ## X video publishing release — September 12, 2026
 
