@@ -1,5 +1,6 @@
 """Run the application's recurrence and claim SQL against committed migrations."""
 import concurrent.futures
+from contextlib import closing
 import json
 from pathlib import Path
 import re
@@ -234,7 +235,7 @@ class ScheduleTests(unittest.TestCase):
                     self.expand(schedule=candidate,db=db)
                 finally:db.close()
             with concurrent.futures.ThreadPoolExecutor(2) as pool:list(pool.map(attempt,range(2)))
-            with sqlite3.connect(path) as db:
+            with closing(sqlite3.connect(path)) as db:
                 self.assertEqual(db.execute('SELECT COUNT(*) FROM jobs').fetchone()[0],1)
                 self.assertEqual(db.execute('SELECT generated_count FROM schedules').fetchone()[0],1)
                 self.assertEqual(db.execute('SELECT COUNT(*) FROM events').fetchone()[0],1)
