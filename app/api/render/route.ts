@@ -34,8 +34,8 @@ async function boundedForm(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const { owner, machine } = await identity(request);
-    if (!machine)
+    const { owner, machine, worker } = await identity(request);
+    if (!machine || !worker)
       throw new ApiError(
         "Only the leased rendering worker can save generated media",
         403,
@@ -45,7 +45,12 @@ export async function POST(request: Request) {
       .string()
       .uuid()
       .parse(request.headers.get("x-render-lease"));
-    const { spec, asset: existing } = await renderPreflight(owner, id, lease);
+    const { spec, asset: existing } = await renderPreflight(
+      owner,
+      worker,
+      id,
+      lease,
+    );
     if (existing)
       return response({ asset: existing.id, sha256: existing.sha256 });
     const form = await boundedForm(request),
@@ -88,6 +93,7 @@ export async function POST(request: Request) {
           id,
           digest,
           owner,
+          worker,
           id,
           lease,
           cutoff,
@@ -99,6 +105,7 @@ export async function POST(request: Request) {
           owner,
           id,
           owner,
+          worker,
           id,
           lease,
           cutoff,

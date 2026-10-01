@@ -33,6 +33,7 @@ class ScheduleTests(unittest.TestCase):
         for f in sorted((ROOT/'drizzle').glob('*.sql')):self.db.executescript(f.read_text())
         for owner in ('alice','bob'):
             self.db.execute('INSERT INTO settings(owner) VALUES(?)',(owner,))
+            self.db.execute('INSERT INTO workers(id,owner,name,key_hash,created) VALUES(?,?,?,?,?)',(owner+'-worker',owner,'Test worker',owner+'-hash',self.now))
             for agent,parent in [('astra',None),('ambient','astra'),('ambient-writer','ambient'),('ambient-editor','ambient')]:
                 self.db.execute('INSERT INTO agents(owner,id,parent,name,role,lane,model,instructions,color) VALUES(?,?,?,?,?,?,?,?,?)',(owner,agent,parent,agent,'writer','ambient','gpt-6-astra','original work','#fff'))
             self.db.execute('INSERT INTO accounts(id,owner,platform,handle,lane,external_id,credential_ref,authorized,created) VALUES(?,?,?,?,?,?,?,?,?)',(owner+'-account',owner,'youtube','@'+owner,'ambient',owner+'-channel','YT_REFERENCE',1,self.now))
@@ -52,7 +53,7 @@ class ScheduleTests(unittest.TestCase):
         return job
     def row(self,id='recurring'):return self.db.execute('SELECT * FROM schedules WHERE id=?',(id,)).fetchone()
     def claim(self):
-        return self.db.execute(CLAIM,('lease',self.now+180000,self.day,'alice','lease','alice','live',self.now,self.day,self.now,self.day)).fetchone()
+        return self.db.execute(CLAIM,('lease',self.now+180000,'alice-worker',self.day,'alice','lease','alice-worker','alice','live',self.now,self.day,self.now,self.day)).fetchone()
     def control(self,query,args):
         with self.db:
             result=self.db.execute(query,args).rowcount
@@ -204,12 +205,12 @@ class ScheduleTests(unittest.TestCase):
     def test_scheduled_render_preflight_respects_schedule_pause_and_lease(self):
         self.ambient();self.expand();j=self.claim()
         query=re.search(r'renderEligibility = `(.*?)`',(ROOT/'lib/render.ts').read_text(),re.S).group(1)
-        self.assertIsNotNone(self.db.execute(query,('alice',j['id'],'lease',self.now)).fetchone())
+        self.assertIsNotNone(self.db.execute(query,('alice','alice-worker',j['id'],'lease',self.now)).fetchone())
         self.db.execute('UPDATE schedules SET paused=1')
-        self.assertIsNone(self.db.execute(query,('alice',j['id'],'lease',self.now)).fetchone())
+        self.assertIsNone(self.db.execute(query,('alice','alice-worker',j['id'],'lease',self.now)).fetchone())
         self.db.execute('UPDATE schedules SET paused=0')
-        self.assertIsNone(self.db.execute(query,('alice',j['id'],'old-lease',self.now)).fetchone())
-        self.assertIsNone(self.db.execute(query,('bob',j['id'],'lease',self.now)).fetchone())
+        self.assertIsNone(self.db.execute(query,('alice','alice-worker',j['id'],'old-lease',self.now)).fetchone())
+        self.assertIsNone(self.db.execute(query,('bob','bob-worker',j['id'],'lease',self.now)).fetchone())
     def test_schedule_output_kind_cannot_be_changed_by_edit(self):
         self.ambient();args=('New title','New original brief','live',60,self.now+1,None,0,self.now,None,0,'alice','recurring','alice-account',self.row()['revision'],'workflow',self.now+1)
         self.assertEqual(self.control(EDIT,args),0);self.assertEqual(self.row()['production_kind'],'ambient')

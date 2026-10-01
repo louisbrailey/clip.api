@@ -5,8 +5,22 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const { owner } = await identity(request),
+    const { owner, machine, worker } = await identity(request),
       { id } = await params;
+    if (machine) {
+      const job = request.headers.get("x-worker-job") || "";
+      const lease = request.headers.get("x-worker-lease") || "";
+      const allowed = await sql(
+        "SELECT 1 AS ok FROM jobs WHERE owner=? AND worker_id=? AND id=? AND lease=? AND lease_until>? AND status='running' AND asset=?",
+        owner,
+        worker,
+        job,
+        lease,
+        Date.now(),
+        id,
+      ).first();
+      if (!allowed) throw new ApiError("Media lease is no longer authorized", 403);
+    }
     const asset = await sql(
       "SELECT object_key,name,mime FROM assets WHERE owner=? AND id=?",
       owner,

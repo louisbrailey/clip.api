@@ -7,7 +7,7 @@ Development verification performed September 11–15, 2026. This file records th
 | Portal source and client/server compilation | `npx tsc --noEmit`; `npm run build` | Passed during implementation; final rebuild passed for the source prepared for publication. |
 | Durable records and migrations | D1 local execution of all seven generated migrations; actual HTTP workflows | Persisted agents, jobs, usage, audit events, account records and media metadata verified locally. |
 | Astra delegation | HTTP creation, claim and completion; structured-output worker fixture tests | Exact `gpt-6-astra` selection verified; no paid model invocation. |
-| Per-agent controls | HTTP ancestor-pause check; SQL agent/global concurrency tests | Pauses and subsequent-claim configuration verified. No mid-call steering. |
+| Worker and agent controls | 149 Python checks plus 48 core HTTP checks | Named worker creation, cross-worker lease denial, individual pause/revoke, per-worker/agent/global concurrency and ancestor pause verified. No mid-call steering. |
 | Queue reliability | Atomic-claim SQL tests, competing HTTP callbacks, duplicate completion and stale lease checks | Single winning callback; losing callbacks cannot append children. Budget reservations and daily-ledger checks passed. |
 | Original media | Actual leased worker render, private local portal asset registration, download and SHA-256 verification; full FFmpeg decode | Ten-second output and provenance saved locally. Hosted worker and Docker remain inactive/unverified. |
 | Media storage/playback | Real MP4 multipart upload plus authenticated byte-range GET | R2 local persistence and HTTP 206 behavior passed. |

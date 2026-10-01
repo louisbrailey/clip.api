@@ -17,6 +17,7 @@ class QueueTests(unittest.TestCase):
         self.now=int(time.time()*1000);self.day=self.now//86400000
         for owner in ['alice','bob']:
             self.db.execute('INSERT INTO settings(owner) VALUES(?)',(owner,))
+            self.db.execute('INSERT INTO workers(id,owner,name,key_hash,created) VALUES(?,?,?,?,?)',(owner+'-worker',owner,'Test worker',owner+'-hash',self.now))
             for id,parent in [('astra',None),('ambient','astra'),('ambient-writer','ambient'),('ambient-editor','ambient')]:
                 self.db.execute('INSERT INTO agents(owner,id,parent,name,role,lane,model,instructions,color,core) VALUES(?,?,?,?,?,?,?,?,?,1)',(owner,id,parent,id,'writer','ambient','gpt-6-astra','original work','#fff'))
     def tearDown(self):self.db.close()
@@ -24,7 +25,8 @@ class QueueTests(unittest.TestCase):
         data={'id':id,'owner':owner,'agent':agent,'title':id,'brief':'Original work','lane':'ambient','mode':'live','kind':kind,'created':self.now,'scheduled':self.now,**kw}
         self.db.execute('INSERT INTO jobs('+','.join(data)+') VALUES('+','.join('?' for _ in data)+')',list(data.values()))
     def claim(self,key='key',owner='alice'):
-        return self.db.execute(CLAIM,(key,self.now+180000,self.day,owner,key,owner,'live',self.now,self.day,self.now,self.day)).fetchone()
+        worker=owner+'-worker'
+        return self.db.execute(CLAIM,(key,self.now+180000,worker,self.day,owner,key,worker,owner,'live',self.now,self.day,self.now,self.day)).fetchone()
     def test_claim_is_fenced_and_reserves_budget(self):
         self.job('one');j=self.claim();self.assertEqual(j['reserve'],20000);self.assertEqual(j['status'],'running');self.assertEqual(j['attempts'],1);self.assertEqual(j['lease'],'key')
     def test_claim_request_key_cannot_claim_twice(self):
@@ -37,6 +39,16 @@ class QueueTests(unittest.TestCase):
         self.job('one');self.db.execute("UPDATE agents SET paused=1 WHERE id='astra'");self.assertIsNone(self.claim())
     def test_global_concurrency_limit(self):
         self.db.execute("UPDATE settings SET concurrency=1 WHERE owner='alice'");self.job('one');self.job('two',agent='ambient-editor');self.claim();self.assertIsNone(self.claim('second'))
+    def test_worker_concurrency_limit_and_independence(self):
+        self.db.execute("UPDATE workers SET concurrency=1 WHERE id='alice-worker'")
+        self.db.execute("INSERT INTO workers(id,owner,name,key_hash,concurrency,created) VALUES('alice-worker-2','alice','Second','second-hash',1,?)",(self.now,))
+        self.job('one');self.job('two',agent='ambient-editor')
+        self.assertIsNotNone(self.claim())
+        self.assertIsNone(self.claim('second'))
+        args=('third',self.now+180000,'alice-worker-2',self.day,'alice','third','alice-worker-2','alice','live',self.now,self.day,self.now,self.day)
+        self.assertEqual(self.db.execute(CLAIM,args).fetchone()['worker_id'],'alice-worker-2')
+    def test_paused_worker_cannot_claim(self):
+        self.db.execute("UPDATE workers SET paused=1 WHERE id='alice-worker'");self.job('one');self.assertIsNone(self.claim())
     def test_agent_concurrency_limit(self):
         self.db.execute("UPDATE agents SET concurrency=1 WHERE id='ambient-writer'");self.job('one');self.job('two');self.claim();self.assertIsNone(self.claim('second'))
     def test_budget_reservation_prevents_overcommit(self):

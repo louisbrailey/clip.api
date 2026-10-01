@@ -20,6 +20,25 @@ export const settings = sqliteTable(
   },
   (t) => [uniqueIndex("settings_worker_hash").on(t.worker_hash)],
 );
+export const workers = sqliteTable(
+  "workers",
+  {
+    id: text().primaryKey(),
+    owner: text().notNull(),
+    name: text().notNull(),
+    key_hash: text().notNull(),
+    paused: integer().notNull().default(0),
+    concurrency: integer().notNull().default(2),
+    last_seen: integer(),
+    revision: integer().notNull().default(1),
+    revoked: integer().notNull().default(0),
+    created: integer().notNull(),
+  },
+  (t) => [
+    uniqueIndex("workers_key_hash").on(t.key_hash),
+    index("workers_owner_created").on(t.owner, t.created),
+  ],
+);
 export const agents = sqliteTable(
   "agents",
   {
@@ -115,6 +134,7 @@ export const jobs = sqliteTable(
     billed_day: integer().notNull().default(0),
     lease: text(),
     lease_until: integer(),
+    worker_id: text(),
     account: text(),
     asset: text(),
     receipt: text().notNull().default(""),
@@ -140,6 +160,7 @@ export const jobs = sqliteTable(
         sql`kind='publish' AND status IN ('queued','running','uncertain','succeeded')`,
       ),
     index("jobs_lease").on(t.owner, t.lease),
+    index("jobs_worker_status").on(t.owner, t.worker_id, t.status),
     index("jobs_schedule_status").on(t.owner, t.schedule_id, t.status),
     uniqueIndex("jobs_schedule_occurrence")
       .on(t.owner, t.schedule_id, t.occurrence)

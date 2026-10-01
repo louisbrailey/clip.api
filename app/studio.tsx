@@ -173,6 +173,7 @@ function ControlRoom({ displayName }: { displayName: string }) {
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
     [workerKey, setWorkerKey] = useState(""),
+    [workerName, setWorkerName] = useState("Primary worker"),
     [offset, setOffset] = useState(0),
     [search, setSearch] = useState("");
   const cache = useQueryClient();
@@ -312,8 +313,9 @@ function ControlRoom({ displayName }: { displayName: string }) {
       );
     }
   }
-  const workerOnline =
-    !!s?.settings.worker_seen && !!s?.now && s.now - s.settings.worker_seen < 90000;
+  const workerOnline = !!s?.workers.some(
+    (w) => !w.revoked && !!w.last_seen && s.now - w.last_seen < 90000,
+  );
   const currentJob = job ? s?.jobs.find((j) => j.id === job.id) || job : null;
   return (
     <div className="app-shell">
@@ -1020,7 +1022,7 @@ function ControlRoom({ displayName }: { displayName: string }) {
                     <div className="section-icon">
                       <Cpu />
                     </div>
-                    <h2>Connect a worker</h2>
+                    <h2>Worker fleet</h2>
                     <p className="muted">
                       Run the included Python worker on an always-on machine.
                       Credentials stay in that runtime, outside the portal.
@@ -1041,8 +1043,8 @@ function ControlRoom({ displayName }: { displayName: string }) {
                         <div>
                           <strong>Create a worker key</strong>
                           <p>
-                            The key is shown once. Rotating it revokes the
-                            previous key.
+                            Each named worker gets its own key, pause control
+                            and concurrency limit. Keys are shown once.
                           </p>
                         </div>
                       </li>
@@ -1060,35 +1062,28 @@ function ControlRoom({ displayName }: { displayName: string }) {
                       </li>
                     </ol>
                     <div className="button-row">
+                      <Input
+                        aria-label="Worker name"
+                        value={workerName}
+                        maxLength={80}
+                        onChange={(e) => setWorkerName(e.target.value)}
+                      />
                       <Button
-                        disabled={busy}
+                        disabled={busy || !workerName.trim()}
                         onClick={async () => {
                           const r = await act(
-                            { action: "worker-key" },
+                            {
+                              action: "worker-create",
+                              name: workerName,
+                              concurrency: 2,
+                            },
                             "Worker key created",
                           );
                           if (r?.token) setWorkerKey(r.token);
                         }}
                       >
-                        {s.settings.has_worker_key
-                          ? "Rotate worker key"
-                          : "Create worker key"}
+                        Add worker
                       </Button>
-                      {s.settings.has_worker_key && (
-                        <Button
-                          variant="outline"
-                          disabled={busy}
-                          onClick={async () => {
-                            await act(
-                              { action: "revoke-key" },
-                              "Worker key revoked",
-                            );
-                            setWorkerKey("");
-                          }}
-                        >
-                          Revoke key
-                        </Button>
-                      )}
                     </div>
                     {workerKey && (
                       <div className="key-box">
@@ -1120,6 +1115,103 @@ function ControlRoom({ displayName }: { displayName: string }) {
                       {workerOnline
                         ? `Last heartbeat ${when(s.settings.worker_seen!)}`
                         : "No recent worker heartbeat"}
+                    </div>
+                    <div className="worker-list">
+                      {s.workers.filter((w) => !w.revoked).map((w) => (
+                        <div className="worker-status" key={w.id}>
+                          <Radio size={15} />
+                          <span>
+                            <strong>{w.name}</strong>
+                            <small>
+                              {w.paused
+                                ? "Paused"
+                                : w.last_seen && s.now - w.last_seen < 90000
+                                  ? `Online · ${w.running} running`
+                                  : "Offline"}
+                              {` · limit ${w.concurrency}`}
+                            </small>
+                          </span>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            aria-label={`Decrease ${w.name} concurrency`}
+                            disabled={busy || w.concurrency <= 1}
+                            onClick={() =>
+                              act(
+                                {
+                                  action: "worker-control",
+                                  id: w.id,
+                                  revision: w.revision,
+                                  name: w.name,
+                                  paused: !!w.paused,
+                                  concurrency: w.concurrency - 1,
+                                },
+                                "Worker limit decreased",
+                              )
+                            }
+                          >
+                            −
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            aria-label={`Increase ${w.name} concurrency`}
+                            disabled={busy || w.concurrency >= 32}
+                            onClick={() =>
+                              act(
+                                {
+                                  action: "worker-control",
+                                  id: w.id,
+                                  revision: w.revision,
+                                  name: w.name,
+                                  paused: !!w.paused,
+                                  concurrency: w.concurrency + 1,
+                                },
+                                "Worker limit increased",
+                              )
+                            }
+                          >
+                            +
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={busy}
+                            onClick={() =>
+                              act(
+                                {
+                                  action: "worker-control",
+                                  id: w.id,
+                                  revision: w.revision,
+                                  name: w.name,
+                                  paused: !w.paused,
+                                  concurrency: w.concurrency,
+                                },
+                                w.paused ? "Worker resumed" : "Worker paused",
+                              )
+                            }
+                          >
+                            {w.paused ? "Resume" : "Pause"}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={busy}
+                            onClick={() =>
+                              act(
+                                {
+                                  action: "worker-revoke",
+                                  id: w.id,
+                                  revision: w.revision,
+                                },
+                                "Worker revoked",
+                              )
+                            }
+                          >
+                            Revoke
+                          </Button>
+                        </div>
+                      ))}
                     </div>
                   </section>
                   <section className="panel padded span-two">

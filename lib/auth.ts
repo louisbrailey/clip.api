@@ -23,11 +23,11 @@ export async function identity(request: Request) {
     if (!/^Bearer cs_[a-f0-9]{64}$/.test(token))
       throw new ApiError("Invalid worker key", 401);
     const user = await sql(
-      "SELECT owner FROM settings WHERE worker_hash=?",
+      "SELECT owner,id AS worker FROM workers WHERE key_hash=? AND revoked=0",
       await hash(token.slice(7)),
-    ).first<{ owner: string }>();
+    ).first<{ owner: string; worker: string }>();
     if (!user) throw new ApiError("Worker key is invalid or revoked", 401);
-    return { owner: user.owner, machine: true };
+    return { owner: user.owner, machine: true, worker: user.worker };
   }
   const user = await getChatGPTUser();
   if (!user) throw new ApiError("Sign in to your workspace", 401);
@@ -37,7 +37,7 @@ export async function identity(request: Request) {
   )
     throw new ApiError("Request origin does not match this workspace", 403);
   await initialize(user.userId);
-  return { owner: user.userId, machine: false };
+  return { owner: user.userId, machine: false, worker: null };
 }
 export function response(body: unknown, status = 200) {
   return Response.json(body, {

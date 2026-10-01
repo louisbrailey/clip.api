@@ -98,7 +98,10 @@ export async function state(
       owner,
     ),
     sql(
-      "SELECT agent_total,paused,concurrency,daily_tokens,worker_seen,worker_hash IS NOT NULL AS has_worker_key FROM settings WHERE owner=?",
+      `SELECT agent_total,paused,concurrency,daily_tokens,
+      (SELECT MAX(last_seen) FROM workers WHERE owner=settings.owner AND revoked=0) AS worker_seen,
+      EXISTS(SELECT 1 FROM workers WHERE owner=settings.owner AND revoked=0) AS has_worker_key
+      FROM settings WHERE owner=?`,
       owner,
     ),
     sql(
@@ -142,6 +145,12 @@ export async function state(
       search,
       search,
     ),
+    sql(
+      `SELECT w.id,w.name,w.paused,w.concurrency,w.last_seen,w.revision,w.revoked,w.created,
+      (SELECT COUNT(*) FROM jobs j WHERE j.owner=w.owner AND j.worker_id=w.id AND j.status='running') AS running
+      FROM workers w WHERE w.owner=? ORDER BY w.created,w.id`,
+      owner,
+    ),
   ]);
   const counts: Record<string, number> = {};
   for (const v of r[6].results) counts[v.status as string] = v.n as number;
@@ -182,6 +191,7 @@ export async function state(
     assets: visibleAssets,
     events: r[4].results,
     settings: r[5].results[0],
+    workers: r[14].results,
     counts,
     tokens_today: r[7].results[0].tokens,
     reserved_today: r[7].results[0].reserved,
@@ -235,7 +245,7 @@ export async function sweep(owner: string) {
       cutoff,
     ),
     sql(
-      "UPDATE jobs SET status=CASE WHEN kind='publish' THEN 'uncertain' WHEN attempts>=3 THEN 'failed' ELSE 'queued' END, error='Lease expired; outcome unconfirmed', tokens=tokens+reserve,reserve=0,lease=NULL,lease_until=NULL,scheduled=? WHERE owner=? AND status='running' AND lease_until<?",
+      "UPDATE jobs SET status=CASE WHEN kind='publish' THEN 'uncertain' WHEN attempts>=3 THEN 'failed' ELSE 'queued' END, error='Lease expired; outcome unconfirmed', tokens=tokens+reserve,reserve=0,lease=NULL,lease_until=NULL,worker_id=NULL,scheduled=? WHERE owner=? AND status='running' AND lease_until<?",
       cutoff + 30000,
       owner,
       cutoff,
@@ -252,11 +262,17 @@ export async function sweep(owner: string) {
     owner,
   ).run();
 }
-export async function claim(owner: string, mode: string, token: string) {
+export async function claim(
+  owner: string,
+  mode: string,
+  token: string,
+  worker: string,
+) {
   await sweep(owner);
   const existing = await sql(
-    "SELECT * FROM jobs WHERE owner=? AND lease=? AND status='running' AND lease_until>?",
+    "SELECT * FROM jobs WHERE owner=? AND worker_id=? AND lease=? AND status='running' AND lease_until>?",
     owner,
+    worker,
     token,
     now(),
   ).first<Job>();
@@ -266,17 +282,19 @@ export async function claim(owner: string, mode: string, token: string) {
     billingDay = Math.floor(cutoff / 86400000);
   // The budget, inherited pause and concurrency checks are inside the atomic claim.
   return sql(
-    `UPDATE jobs SET status='running',lease=?,lease_until=?,attempts=attempts+1,
+    `UPDATE jobs SET status='running',lease=?,lease_until=?,worker_id=?,attempts=attempts+1,
     reserve=CASE WHEN mode='live' AND kind IN ('plan','draft') THEN 20000 ELSE 0 END,billed_day=?
     WHERE owner=? AND NOT EXISTS(SELECT 1 FROM jobs previous WHERE previous.owner=jobs.owner AND previous.lease=?) AND id=(
-      SELECT j.id FROM jobs j JOIN settings s ON s.owner=j.owner JOIN agents a ON a.owner=j.owner AND a.id=j.agent
+      SELECT j.id FROM jobs j JOIN settings s ON s.owner=j.owner JOIN agents a ON a.owner=j.owner AND a.id=j.agent LEFT JOIN workers w ON w.owner=j.owner AND w.id=?
       WHERE j.owner=? AND j.mode=? AND j.status='queued' AND j.scheduled<=? AND j.attempts<3 AND s.paused=0
+      AND (j.mode='rehearsal' OR (w.paused=0 AND w.revoked=0))
       AND (j.account IS NULL OR EXISTS(SELECT 1 FROM accounts c WHERE c.owner=j.owner AND c.id=j.account AND c.paused=0 AND c.authorized=1))
       AND (j.schedule_id IS NULL OR EXISTS(SELECT 1 FROM schedules r WHERE r.owner=j.owner AND r.id=j.schedule_id AND r.paused=0))
       AND EXISTS(SELECT 1 FROM agents studio WHERE studio.owner=j.owner AND studio.id=j.lane AND studio.paused=0)
       AND (j.depends IS NULL OR EXISTS(SELECT 1 FROM jobs d WHERE d.owner=j.owner AND d.id=j.depends AND d.status='succeeded'))
       AND NOT EXISTS (WITH RECURSIVE tree AS (SELECT id,parent,paused,concurrency,archived FROM agents WHERE owner=j.owner AND id=j.agent UNION ALL SELECT p.id,p.parent,p.paused,p.concurrency,p.archived FROM agents p JOIN tree t ON p.id=t.parent WHERE p.owner=j.owner) SELECT 1 FROM tree WHERE paused=1 OR archived=1)
       AND (SELECT COUNT(*) FROM jobs r WHERE r.owner=j.owner AND r.status='running') < s.concurrency
+      AND (j.mode='rehearsal' OR (SELECT COUNT(*) FROM jobs r WHERE r.owner=j.owner AND r.worker_id=w.id AND r.status='running') < w.concurrency)
       AND (SELECT COUNT(*) FROM jobs r WHERE r.owner=j.owner AND r.status='running' AND r.agent=j.agent) < a.concurrency
       AND (j.mode='rehearsal' OR j.kind IN ('publish','render') OR (SELECT COALESCE(SUM(tokens),0) FROM usage b WHERE b.owner=j.owner AND b.day=?)+(SELECT COALESCE(SUM(reserve),0) FROM jobs b WHERE b.owner=j.owner)+20000 <= s.daily_tokens)
       AND (j.kind!='render' OR (j.approved=1 AND j.lane='ambient' AND j.render_spec IS NOT NULL))
@@ -287,9 +305,11 @@ export async function claim(owner: string, mode: string, token: string) {
     ) AND status='queued' RETURNING *`,
     token,
     cutoff + 180000,
+    worker,
     billingDay,
     owner,
     token,
+    worker,
     owner,
     mode,
     cutoff,

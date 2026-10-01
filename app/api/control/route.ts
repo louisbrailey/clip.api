@@ -85,7 +85,11 @@ export async function GET(request: Request) {
     return failure(e);
   }
 }
-async function complete(owner: string, body: Record<string, unknown>) {
+async function complete(
+  owner: string,
+  worker: string,
+  body: Record<string, unknown>,
+) {
   const v = z
     .object({
       id: z.string().max(100),
@@ -105,7 +109,7 @@ async function complete(owner: string, body: Record<string, unknown>) {
   ).first<Job & { completion_hash: string | null; billed_day: number }>();
   const completionHash = await hash(JSON.stringify(v));
   const nonce = crypto.randomUUID();
-  if (!j || j.lease !== v.lease)
+  if (!j || j.lease !== v.lease || j.worker_id !== worker)
     throw new ApiError("This lease is no longer valid", 409);
   if (j.status === v.status && j.completion_hash === completionHash)
     return response({ ok: true });
@@ -132,7 +136,7 @@ async function complete(owner: string, body: Record<string, unknown>) {
         : j.reserve;
   const statements = [
     sql(
-      "UPDATE jobs SET status=?,result=?,error=?,tokens=tokens+?,reserve=0,receipt=?,completion_nonce=?,completion_hash=? WHERE owner=? AND id=? AND status='running' AND lease=? AND lease_until>?",
+      "UPDATE jobs SET status=?,result=?,error=?,tokens=tokens+?,reserve=0,receipt=?,completion_nonce=?,completion_hash=? WHERE owner=? AND worker_id=? AND id=? AND status='running' AND lease=? AND lease_until>?",
       v.status,
       v.result,
       v.error,
@@ -141,6 +145,7 @@ async function complete(owner: string, body: Record<string, unknown>) {
       nonce,
       completionHash,
       owner,
+      worker,
       j.id,
       v.lease,
       now(),
@@ -228,9 +233,17 @@ function scheduleControlEvent(owner: string, message: string) {
     now(),
   );
 }
+function workerToken() {
+  return (
+    "cs_" +
+    Array.from(crypto.getRandomValues(new Uint8Array(32)))
+      .map((x) => x.toString(16).padStart(2, "0"))
+      .join("")
+  );
+}
 export async function POST(request: Request) {
   try {
-    const { owner, machine } = await identity(request);
+    const { owner, machine, worker } = await identity(request);
     if (Number(request.headers.get("content-length") || 0) > 40000)
       throw new ApiError("Request too large", 413);
     const raw = await request.text();
@@ -251,23 +264,27 @@ export async function POST(request: Request) {
         403,
       );
     if (action === "claim") {
+      if (!worker) throw new ApiError("Worker identity required", 403);
       const token = z.string().uuid().parse(body.request_id);
       await sql(
-        "UPDATE settings SET worker_seen=? WHERE owner=?",
+        "UPDATE workers SET last_seen=? WHERE owner=? AND id=? AND revoked=0",
         now(),
         owner,
+        worker,
       ).run();
-      const j = await claim(owner, "live", token);
+      const j = await claim(owner, "live", token, worker);
       return response(j ? await jobContext(owner, j) : { job: null });
     }
     if (action === "heartbeat") {
+      if (!worker) throw new ApiError("Worker identity required", 403);
       const v = z
         .object({ id: z.string().max(100), lease: z.string().uuid() })
         .parse(body);
       const result = await sql(
-        "UPDATE jobs SET lease_until=? WHERE owner=? AND id=? AND lease=? AND status='running' AND lease_until>?",
+        "UPDATE jobs SET lease_until=? WHERE owner=? AND worker_id=? AND id=? AND lease=? AND status='running' AND lease_until>?",
         now() + 180000,
         owner,
+        worker,
         v.id,
         v.lease,
         now(),
@@ -275,18 +292,23 @@ export async function POST(request: Request) {
       if (!result.meta.changes)
         throw new ApiError("Lease expired or revoked", 409);
       await sql(
-        "UPDATE settings SET worker_seen=? WHERE owner=?",
+        "UPDATE workers SET last_seen=? WHERE owner=? AND id=? AND paused=0 AND revoked=0",
         now(),
         owner,
+        worker,
       ).run();
       return response({ ok: true });
     }
-    if (action === "complete") return await complete(owner, body);
+    if (action === "complete") {
+      if (!worker) throw new ApiError("Worker identity required", 403);
+      return await complete(owner, worker, body);
+    }
     if (action === "render-preflight") {
+      if (!worker) throw new ApiError("Worker identity required", 403);
       const v = z
         .object({ id: z.string().uuid(), lease: z.string().uuid() })
         .parse(body);
-      const { asset } = await renderPreflight(owner, v.id, v.lease);
+      const { asset } = await renderPreflight(owner, worker, v.id, v.lease);
       return response({
         ok: true,
         asset: asset?.id || null,
@@ -294,9 +316,11 @@ export async function POST(request: Request) {
       });
     }
     if (action === "preflight") {
+      if (!worker) throw new ApiError("Worker identity required", 403);
       const j = await sql(
-        "SELECT j.id FROM jobs j JOIN settings s ON s.owner=j.owner JOIN accounts a ON a.id=j.account AND a.owner=j.owner JOIN assets m ON m.id=j.asset AND m.owner=j.owner WHERE j.owner=? AND j.id=? AND j.lease=? AND j.status='running' AND j.lease_until>? AND j.approved=1 AND s.paused=0 AND a.paused=0 AND a.authorized=1 AND (m.expires IS NULL OR m.expires>?) AND NOT EXISTS(WITH RECURSIVE tree AS (SELECT id,parent,paused,archived FROM agents WHERE owner=j.owner AND id=j.agent UNION ALL SELECT p.id,p.parent,p.paused,p.archived FROM agents p JOIN tree t ON p.id=t.parent WHERE p.owner=j.owner) SELECT 1 FROM tree WHERE paused=1 OR archived=1)",
+        "SELECT j.id FROM jobs j JOIN settings s ON s.owner=j.owner JOIN accounts a ON a.id=j.account AND a.owner=j.owner JOIN assets m ON m.id=j.asset AND m.owner=j.owner WHERE j.owner=? AND j.worker_id=? AND j.id=? AND j.lease=? AND j.status='running' AND j.lease_until>? AND j.approved=1 AND s.paused=0 AND a.paused=0 AND a.authorized=1 AND (m.expires IS NULL OR m.expires>?) AND NOT EXISTS(WITH RECURSIVE tree AS (SELECT id,parent,paused,archived FROM agents WHERE owner=j.owner AND id=j.agent UNION ALL SELECT p.id,p.parent,p.paused,p.archived FROM agents p JOIN tree t ON p.id=t.parent WHERE p.owner=j.owner) SELECT 1 FROM tree WHERE paused=1 OR archived=1)",
         owner,
+        worker,
         String(body.id),
         String(body.lease),
         now(),
@@ -566,29 +590,90 @@ export async function POST(request: Request) {
       ]);
       return response({ ok: true });
     }
-    if (action === "worker-key") {
-      const token =
-        "cs_" +
-        Array.from(crypto.getRandomValues(new Uint8Array(32)))
-          .map((x) => x.toString(16).padStart(2, "0"))
-          .join("");
+    if (action === "worker-create" || action === "worker-key") {
+      const v = z
+        .object({
+          name: z.string().trim().min(1).max(80).default("Primary worker"),
+          concurrency: z.number().int().min(1).max(32).default(2),
+        })
+        .parse(body);
+      const token = workerToken();
+      const id = crypto.randomUUID();
       await db().batch([
         sql(
-          "UPDATE settings SET worker_hash=?,worker_seen=NULL WHERE owner=?",
+          `INSERT INTO workers(id,owner,name,key_hash,concurrency,created)
+          SELECT ?,?,?,?,?,? WHERE (SELECT COUNT(*) FROM workers WHERE owner=? AND revoked=0)<64`,
+          id,
+          owner,
+          v.name,
           await hash(token),
+          v.concurrency,
+          now(),
           owner,
         ),
-        event(owner, "control", "Worker key rotated; previous key revoked"),
+        scheduleControlEvent(owner, `Created worker: ${v.name}`),
       ]);
-      return response({ token });
+      const created = await sql(
+        "SELECT id,name,paused,concurrency,last_seen,revision,revoked,created FROM workers WHERE owner=? AND id=?",
+        owner,
+        id,
+      ).first();
+      if (!created) throw new ApiError("Active worker limit reached", 409);
+      return response({ token, worker: created });
+    }
+    if (action === "worker-control") {
+      const v = z
+        .object({
+          id: z.string().uuid(),
+          revision: z.number().int().positive(),
+          name: z.string().trim().min(1).max(80),
+          paused: z.boolean(),
+          concurrency: z.number().int().min(1).max(32),
+        })
+        .parse(body);
+      const result = await db().batch([
+        sql(
+          "UPDATE workers SET name=?,paused=?,concurrency=?,revision=revision+1 WHERE owner=? AND id=? AND revision=? AND revoked=0",
+          v.name,
+          +v.paused,
+          v.concurrency,
+          owner,
+          v.id,
+          v.revision,
+        ),
+        scheduleControlEvent(
+          owner,
+          `${v.paused ? "Paused" : "Updated"} worker: ${v.name}`,
+        ),
+      ]);
+      if (!result[0].meta.changes)
+        throw new ApiError("Worker changed. Refresh and retry.", 409);
+      return response({ ok: true });
+    }
+    if (action === "worker-revoke") {
+      const v = z
+        .object({ id: z.string().uuid(), revision: z.number().int().positive() })
+        .parse(body);
+      const result = await db().batch([
+        sql(
+          "UPDATE workers SET revoked=1,paused=1,revision=revision+1 WHERE owner=? AND id=? AND revision=? AND revoked=0",
+          owner,
+          v.id,
+          v.revision,
+        ),
+        scheduleControlEvent(owner, "Worker access revoked"),
+      ]);
+      if (!result[0].meta.changes)
+        throw new ApiError("Worker changed. Refresh and retry.", 409);
+      return response({ ok: true });
     }
     if (action === "revoke-key") {
       await db().batch([
         sql(
-          "UPDATE settings SET worker_hash=NULL,worker_seen=NULL WHERE owner=?",
+          "UPDATE workers SET revoked=1,paused=1,revision=revision+1 WHERE owner=? AND revoked=0",
           owner,
         ),
-        event(owner, "control", "Worker access revoked"),
+        event(owner, "control", "All worker access revoked"),
       ]);
       return response({ ok: true });
     }
@@ -831,7 +916,8 @@ export async function POST(request: Request) {
       return response({ ok: true });
     }
     if (action === "rehearse") {
-      const j = await claim(owner, "rehearsal", crypto.randomUUID());
+      const operator = "operator-rehearsal";
+      const j = await claim(owner, "rehearsal", crypto.randomUUID(), operator);
       if (!j)
         return response({
           message:
@@ -861,7 +947,7 @@ export async function POST(request: Request) {
               brief: t.brief.slice(0, 6000),
             }))
           : undefined;
-      return await complete(owner, {
+      return await complete(owner, operator, {
         id: j.id,
         lease: j.lease,
         status: "succeeded",

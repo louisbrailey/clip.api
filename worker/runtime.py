@@ -145,9 +145,11 @@ class Portal:
             self.headers.update({"CF-Access-Client-Id":os.environ["CF_ACCESS_CLIENT_ID"], "CF-Access-Client-Secret":os.environ["CF_ACCESS_CLIENT_SECRET"]})
     def call(self, action, **body):
         return json_http(self.url + "/api/control", method="POST", body={"action":action, **body}, headers=self.headers, timeout=30)[0]
-    def media(self, asset):
+    def media(self, asset, job=None):
         if not re.fullmatch(r"[a-f0-9-]{36}", asset): raise RuntimeFailure("Invalid media ID")
-        data, _, _ = http(self.url + "/api/assets/" + asset, headers=self.headers)
+        headers=dict(self.headers)
+        if job: headers.update({"X-Worker-Job":job["id"],"X-Worker-Lease":job["lease"]})
+        data, _, _ = http(self.url + "/api/assets/" + asset, headers=headers)
         if len(data) > 52428800 or data[4:8] != b"ftyp": raise RuntimeFailure("Invalid or oversized MP4 source")
         return data
 
@@ -158,6 +160,12 @@ class Portal:
         body=(f'--{boundary}\r\nContent-Disposition: form-data; name="sha256"\r\n\r\n{digest}\r\n--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="original.mp4"\r\nContent-Type: video/mp4\r\n\r\n'.encode()+data+f'\r\n--{boundary}--\r\n'.encode())
         headers={**self.headers,'Content-Type':'multipart/form-data; boundary='+boundary,'X-Render-Job':job,'X-Render-Lease':lease}
         return json_http(self.url+'/api/render',method='POST',body=body,headers=headers,timeout=90)[0]
+
+def leased_media(portal, job):
+    # Fixture portals only model provider behavior. The production Portal adds
+    # the job and lease headers required by the media endpoint.
+    if isinstance(portal, Portal): return portal.media(job["asset"], job)
+    return portal.media(job["asset"])
 
 def youtube_token(account):
     ref = account.get("credential_ref", "")
@@ -180,7 +188,7 @@ def publish_youtube(context, portal, lease_valid, journal):
     channels, _, _ = json_http("https://www.googleapis.com/youtube/v3/channels?part=id&mine=true", headers=headers)
     if a["external_id"] not in [c.get("id") for c in channels.get("items",[])]:
         raise RuntimeFailure("OAuth token does not belong to the registered YouTube channel")
-    video = portal.media(j["asset"])
+    video = leased_media(portal, j)
     if not lease_valid(): raise RuntimeFailure("Lease could not be renewed; upload stopped before dispatch")
     portal.call("preflight", id=j["id"], lease=j["lease"])
     metadata = {"snippet":{"title":j["title"],"description":j["brief"]}, "status":{"privacyStatus":"private"}}
@@ -370,7 +378,7 @@ def publish_instagram(context, portal, lease_valid, journal):
     account_id = meta_account_check(account, 'instagram', token)
     if not lease_valid(): raise RuntimeFailure('Lease could not be renewed; Instagram dispatch stopped')
     portal.call('preflight', id=j['id'], lease=j['lease'])
-    video = portal.media(j['asset'])
+    video = leased_media(portal, j)
     meta_quota(account_id, 'instagram', token)
     if not lease_valid(): raise RuntimeFailure('Lease lost before Instagram upload')
     portal.call('preflight', id=j['id'], lease=j['lease'])
@@ -499,7 +507,7 @@ def publish_x(context, portal, lease_valid, journal):
     user, _, _ = json_http('https://api.x.com/2/users/me', headers=headers)
     if x_data(user).get('id') != external:
         raise RuntimeFailure('OAuth token does not belong to the registered X account')
-    video = portal.media(j['asset'])
+    video = leased_media(portal, j)
     def valid():
         if not lease_valid(): raise RuntimeFailure('Lease could not be renewed; X dispatch stopped')
     valid(); portal.call('preflight', id=j['id'], lease=j['lease'])

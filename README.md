@@ -8,7 +8,7 @@ This is a functioning first release with production-oriented queue safeguards. *
 
 - React/Vinext control room with a rotatable 3D projection and a flat tree; 13 built-in agents across Originals, Gaming, Sports and Ambient studios, plus custom agent configurations with paginated branch navigation and name-prefix search.
 - GPT-6 Astra (`gpt-6-astra`) as the fixed head orchestrator. Studio models can be changed to models available to your OpenAI API account. No automatic model substitution.
-- Durable D1 queue with atomic claims, leases, attempt limits, parent dependencies, cancellation, inherited pauses, per-agent concurrency, global concurrency and token reservations.
+- Durable D1 queue with atomic claims, worker-bound leases, attempt limits, parent dependencies, cancellation, inherited pauses, per-worker/per-agent/global concurrency and token reservations.
 - Account-specific recurring production schedules, with pause/resume, run limits, occurrence history, retry-safe creation, missed-interval coalescing and no overlapping unresolved runs.
 - Python worker with bounded parallelism, heartbeats, graceful draining, redacted logs and a durable receipt/completion journal.
 - Original or licensed MP4 uploads to private R2 storage with provenance records and rights expiry.
@@ -57,7 +57,7 @@ The registry allows up to one million configurations, including retired records.
 Read [the operating guide](docs/OPERATIONS.md) before enabling live execution. The browser portal is private. For the existing Sites deployment, use its supported machine-access bearer token as `SITES_API_TOKEN`, alongside the separate scoped `CONSTELLATION_WORKER_KEY`. A read-only check of the published portal verified gateway passage and rejection of an invalid application key; authenticated job execution remains to be activated. A custom ingress is an alternative, not required for this Sites connection.
 
 1. Set `CONSTELLATION_URL` to the exact private portal origin and configure its existing `SITES_API_TOKEN`. This token is sent only to that configured portal, including media requests. Do not use a token belonging to another site.
-2. In **Controls & setup**, create a worker key. Store it in your secret manager. Only its hash is retained by the portal.
+2. In **Controls & setup**, add a named worker. Store its one-time key in your secret manager. Only its hash is retained. Each worker has independent pause, revoke, heartbeat and concurrency controls.
 3. Complete the ignored `.env.worker` file, or copy `.env.worker.example` for a new installation, with the URL, Sites token, worker key, OpenAI key, and required OAuth configuration. Never paste provider secrets into the account registry.
 4. Start the worker using Docker Compose:
 
@@ -129,7 +129,7 @@ python3 tests/integration_recurring_render.py
 python3 tests/integration_narration.py
 ```
 
-The integration test is hardcoded to loopback. It creates test records, rotates and revokes the local test identity's worker key, and exercises simulated publication receipts. Never adapt it to a production account. Reset only disposable local test state if rerunning. The current release passes 147 worker/SQL/process/provider tests, 3 official-parser tests and 257 local HTTP checks, including 13 narration checks; see [verification evidence](docs/VERIFICATION.md). A disposable state directory can be passed to `node scripts/migrate-local.mjs /absolute/disposable/path` and selected when starting development with `CONSTELLATION_LOCAL_STATE=/absolute/disposable/path npm run dev`. Use a new directory for each full integration run.
+The integration test is hardcoded to loopback. It creates test records, named worker identities and simulated publication receipts, then revokes its local keys. Never adapt it to a production account. Reset only disposable local test state if rerunning. The current release passes 149 worker/SQL/process/provider tests; the core local HTTP flow passes 48 checks, including cross-worker lease denial and individual pause/revoke. Additional provider and narration integration evidence is recorded in [verification evidence](docs/VERIFICATION.md). A disposable state directory can be passed to `node scripts/migrate-local.mjs /absolute/disposable/path` and selected when starting development with `CONSTELLATION_LOCAL_STATE=/absolute/disposable/path npm run dev`. Use a new directory for each full integration run.
 
 ## Operating boundaries
 

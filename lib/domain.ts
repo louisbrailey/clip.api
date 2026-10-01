@@ -176,6 +176,7 @@ export type Job = {
   reserve: number;
   lease: string | null;
   lease_until: number | null;
+  worker_id: string | null;
   account: string | null;
   asset: string | null;
   receipt: string;
@@ -251,6 +252,17 @@ export type Settings = {
   worker_seen: number | null;
   has_worker_key: boolean;
 };
+export type Worker = {
+  id: string;
+  name: string;
+  paused: number;
+  concurrency: number;
+  last_seen: number | null;
+  revision: number;
+  revoked: number;
+  created: number;
+  running: number;
+};
 export type State = {
   agent_counts: Record<string, Record<string, number>>;
   lane_counts: Record<string, Record<string, number>>;
@@ -263,6 +275,7 @@ export type State = {
   schedule_total: number;
   events: Event[];
   settings: Settings;
+  workers: Worker[];
   counts: Record<string, number>;
   tokens_today: number;
   reserved_today: number;

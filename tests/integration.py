@@ -59,6 +59,14 @@ try:
     request_id=str(uuid.uuid4());code,c=claim(key,request_id);j=c['job'];check(code==200 and j['id']==v['id'],'live claim retrieves expected job')
     check(c['agent']['model']=='gpt-6-astra','Astra model preserved in worker context')
     check(claim(key,request_id)[1]['job']['id']==j['id'],'ambiguous claim retry returns same lease')
+    _,second=action('worker-create',name='Isolation fixture',concurrency=1);second_key=second['token'];second_worker=second['worker']
+    check(req({'action':'heartbeat','id':j['id'],'lease':j['lease']},token=second_key)[0]==409,'another worker cannot renew a foreign lease')
+    check(req(completion(j,'foreign completion',plan1),token=second_key)[0]==409,'another worker cannot complete a foreign lease')
+    check(action('worker-control',id=second_worker['id'],revision=second_worker['revision'],name=second_worker['name'],paused=True,concurrency=1)[0]==200,'individual worker pause is saved')
+    check(claim(second_key)[1]['job'] is None,'paused worker cannot claim tasks')
+    second_worker=next(w for w in state()['workers'] if w['id']==second_worker['id'])
+    check(action('worker-revoke',id=second_worker['id'],revision=second_worker['revision'])[0]==200,'individual worker can be revoked')
+    check(claim(second_key)[0]==401,'revoked individual worker loses access')
     with concurrent.futures.ThreadPoolExecutor(2) as pool:
         results=list(pool.map(lambda body:req(body,token=key),[completion(j,'plan one',plan1),completion(j,'plan two',plan2)]))
     check(sorted(x[0] for x in results)==[200,409],'competing completion has a single winner')

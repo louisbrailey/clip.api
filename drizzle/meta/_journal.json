@@ -57,6 +57,13 @@
       "when": 1790040262244,
       "tag": "0007_parched_proudstar",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1790888584034,
+      "tag": "0008_light_nighthawk",
+      "breakpoints": true
     }
   ]
 }
