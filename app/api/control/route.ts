@@ -1,6 +1,6 @@
 import { ambientSpec, renderPreflight } from "../../../lib/render";
 import { xCaption } from "../../../lib/x-text";
-import { z } from "zod";
+import { z } from "zod/v3";
 import { updateAgent } from "../../../lib/network";
 import { identity, ApiError, failure, response, hash } from "../../../lib/auth";
 import {

@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "zod/v3";
 import { ApiError } from "./auth";
 import { sql, now } from "./store";
 import { ambientRecipe, type Job } from "./domain";

@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "zod/v3";
 export const lanes = ["originals", "gaming", "sports", "ambient"] as const;
 export const platforms = [
   "youtube",

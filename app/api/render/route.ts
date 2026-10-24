@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "zod/v3";
 import { identity, ApiError, failure, response } from "../../../lib/auth";
 import { bucket, db, sql, now } from "../../../lib/store";
 import { renderPreflight, renderEligibility } from "../../../lib/render";

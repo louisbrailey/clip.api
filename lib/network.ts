@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "zod/v3";
 import { db, sql, now } from "./store";
 import { ApiError } from "./auth";
 import { agentInput, lanes, type Agent, type NetworkAgent } from "./domain";

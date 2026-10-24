@@ -91,3 +91,11 @@ TypeScript compilation and the production build passed. No model, social API or 
 ## Meta publishing release — September 21, 2026
 
 **144 unit/SQL/worker/provider-fixture tests, 3 official-parser tests and 244 local HTTP checks passed (391 total)**, with TypeScript, lint, production build and all eight fresh migrations also passing. Instagram contributed five fixture and 13 HTTP checks; Threads contributed five fixture and 15 HTTP checks. Two actual queued/recurring local videos were fully decoded during these checks. All provider traffic was fixture-local; no Meta credentials, OAuth exchange or live post occurred. Docker is not installed in this environment, so container execution could not be tested on this host.
+
+## Repository maintenance release — October 24, 2026
+
+The repository was checked after new registry advisories appeared. Next, React, Vinext, Vite, the Cloudflare Vite plugin, Wrangler, worker types and their affected transitive packages were upgraded together. Zod was upgraded to the patched v4 package while application schemas continue through its documented `zod/v3` compatibility export. `npm audit --audit-level=low` reported zero vulnerabilities after installation.
+
+The shared developer toolkit recorded successful lint, TypeScript, 149-test Python suite and production-build runs. The build emitted upstream Vinext/Vite sourcemap and ineffective-dynamic-import warnings but completed successfully. No application behavior, database schema, model execution or provider integration changed in this maintenance release. No live model or social-provider call was made.
+
+Weekly Dependabot configuration now proposes npm and GitHub Actions updates. GitHub Actions still runs secret scanning and the full repository checks on every push and pull request. Dependency proposals require review and successful checks; they do not deploy automatically.
