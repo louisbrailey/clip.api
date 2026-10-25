@@ -9,6 +9,7 @@ A private creative-operations portal for authorized social accounts. Astra deleg
 - **Enable live model work:** follow [Worker setup](#worker-setup) and the detailed [operating guide](docs/OPERATIONS.md). You need an always-on worker host, a portal worker key, the Sites machine token, and an OpenAI API key.
 - **Enable social publishing:** connect only accounts you own or are authorized to manage, using the provider requirements in [PLATFORMS.md](docs/PLATFORMS.md). Public publishing always remains a separate approval.
 - **Understand the system:** see [Architecture](docs/ARCHITECTURE.md), [operations](docs/OPERATIONS.md), [verification evidence](docs/VERIFICATION.md), and the [release checklist](docs/RELEASE.md).
+- **Generate locally:** see [Local media generation](docs/LOCAL_MEDIA.md) for the existing ComfyUI connection and supported model choices.
 
 The GitHub repository is named `clip.api`; the application and deployed portal are named **Constellation Studio**.
 
@@ -27,6 +28,7 @@ This is a functioning first release with production-oriented queue safeguards. *
 - Instagram professional-account reels through Meta’s resumable upload path, with account identity and quota checks, exact captions and no replay after an ambiguous publication. Provider calls are fixture-validated only.
 - Threads video posts through a public HTTPS media staging URL, account identity and quota checks, container status checks and exact approved text. Ambiguous publication outcomes are held for review. Provider calls are fixture-validated only.
 - Queued original ambient-video production with an approved 10–300-second noise/color recipe, optional operator-approved local narration, private library output and SHA-256 provenance. The worker performs actual FFmpeg rendering without model calls. Local licensed-clip trimming remains available separately.
+- Optional loopback ComfyUI client for trusted local image/video workflows; it never accepts remote hosts, arbitrary shell commands or unattended publishing instructions.
 - Rehearsals explicitly labeled as deterministic fixtures; they call no models and publish nothing.
 
 ## Local start
@@ -141,7 +143,7 @@ python3 tests/integration_recurring_render.py
 python3 tests/integration_narration.py
 ```
 
-The integration test is hardcoded to loopback. It creates test records, named worker identities and simulated publication receipts, then revokes its local keys. Never adapt it to a production account. Reset only disposable local test state if rerunning. The current release passes 149 worker/SQL/process/provider tests; the core local HTTP flow passes 48 checks, including cross-worker lease denial and individual pause/revoke. Additional provider and narration integration evidence is recorded in [verification evidence](docs/VERIFICATION.md). A disposable state directory can be passed to `node scripts/migrate-local.mjs /absolute/disposable/path` and selected when starting development with `CONSTELLATION_LOCAL_STATE=/absolute/disposable/path npm run dev`. Use a new directory for each full integration run.
+The integration test is hardcoded to loopback. It creates test records, named worker identities and simulated publication receipts, then revokes its local keys. Never adapt it to a production account. Reset only disposable local test state if rerunning. The current release passes 151 worker/SQL/process/provider tests; the core local HTTP flow passes 48 checks, including cross-worker lease denial and individual pause/revoke. Additional provider and narration integration evidence is recorded in [verification evidence](docs/VERIFICATION.md). A disposable state directory can be passed to `node scripts/migrate-local.mjs /absolute/disposable/path` and selected when starting development with `CONSTELLATION_LOCAL_STATE=/absolute/disposable/path npm run dev`. Use a new directory for each full integration run.
 
 ## Operating boundaries
 

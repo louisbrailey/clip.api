@@ -2,6 +2,7 @@ import { z } from "zod/v3";
 export const lanes = ["originals", "gaming", "sports", "ambient"] as const;
 export const platforms = [
   "youtube",
+  "reddit",
   "instagram",
   "threads",
   "x",
@@ -17,6 +18,12 @@ export const platformInfo: Record<
     support: "Worker adapter",
     note: "OAuth and quota approval required. Uploads default to private; unverified projects are restricted to private uploads.",
     url: "https://developers.google.com/youtube/v3/docs/videos/insert",
+  },
+  reddit: {
+    name: "Reddit",
+    support: "OAuth handoff",
+    note: "OAuth identity and approved subreddit metadata can be staged; publishing remains an explicit operator action and must respect subreddit rules and Reddit API limits.",
+    url: "https://www.reddit.com/dev/api/",
   },
   instagram: {
     name: "Instagram",

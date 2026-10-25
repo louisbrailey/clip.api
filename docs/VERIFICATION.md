@@ -96,6 +96,12 @@ TypeScript compilation and the production build passed. No model, social API or 
 
 The repository was checked after new registry advisories appeared. Next, React, Vinext, Vite, the Cloudflare Vite plugin, Wrangler, worker types and their affected transitive packages were upgraded together. Zod was upgraded to the patched v4 package while application schemas continue through its documented `zod/v3` compatibility export. `npm audit --audit-level=low` reported zero vulnerabilities after installation.
 
-The shared developer toolkit recorded successful lint, TypeScript, 149-test Python suite and production-build runs. The build emitted upstream Vinext/Vite sourcemap and ineffective-dynamic-import warnings but completed successfully. No application behavior, database schema, model execution or provider integration changed in this maintenance release. No live model or social-provider call was made.
+The shared developer toolkit recorded successful lint, TypeScript, 151-test Python suite and production-build runs. The build emitted upstream Vinext/Vite sourcemap and ineffective-dynamic-import warnings but completed successfully. No live model or social-provider call was made.
+
+## Local media and provider scaffolding — October 25, 2026
+
+The Desktop launcher now carries a signed Clip.api icon generated for this project, and the portal uses the same logo asset as its browser icon. The worker includes a loopback-only ComfyUI client with health, queue and bounded history polling; `COMFYUI_URL=http://127.0.0.1:8188 python3 worker/runtime.py --comfy-health` returned ComfyUI 0.37.0 on the development Mac. Two focused client tests are included in the 151-test suite. Wan 2.2 TI2V 5B is documented as the practical local starting point for this machine, with LTX-Video as a fast fallback; model download and generation throughput remain unverified.
+
+Reddit OAuth configuration is documented as staging-only and TikTok configuration is documented as creator-review handoff. No live OAuth exchange, social post, vote, comment, follow, DM or engagement action was performed.
 
 Weekly Dependabot configuration now proposes npm and GitHub Actions updates. GitHub Actions still runs secret scanning and the full repository checks on every push and pull request. Dependency proposals require review and successful checks; they do not deploy automatically.
