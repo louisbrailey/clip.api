@@ -23,6 +23,10 @@ class ComfyUIError(RuntimeError):
     """A bounded, redacted local ComfyUI failure."""
 
 
+class WorkflowFailed(ComfyUIError):
+    """ComfyUI confirmed that the submitted prompt failed."""
+
+
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         raise ComfyUIError("Unexpected redirect from ComfyUI")
@@ -171,7 +175,7 @@ def wait(prompt_id: str, *, timeout: float = 900, poll: float = 1.0, lease_valid
             if isinstance(item, dict):
                 status = item.get("status", {})
                 if isinstance(status, dict) and status.get("status_str") == "error":
-                    raise ComfyUIError("ComfyUI workflow failed")
+                    raise WorkflowFailed("ComfyUI workflow failed")
                 if isinstance(status, dict) and status.get("completed"):
                     return item
         time.sleep(max(0, min(max(poll, 0.1), 10.0, deadline - time.monotonic())))

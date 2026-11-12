@@ -677,6 +677,10 @@ def render_photo(portal, j, spec, lease_valid, journal):
             journal.write(journal_key, {"prompt_id": prompt_id})
         result = comfyui.wait(prompt_id, timeout=900, lease_valid=lease_valid)
         return comfyui.video_output(result, j["id"])
+    except comfyui.WorkflowFailed as exc:
+        # A later operator retry can submit again after a confirmed failure.
+        journal.write(journal_key, {})
+        raise RuntimeFailure(str(exc)) from None
     except ComfyUIError as exc:
         raise RuntimeFailure(str(exc)) from None
 

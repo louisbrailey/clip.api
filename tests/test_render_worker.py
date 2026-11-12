@@ -23,6 +23,28 @@ class RenderTests(unittest.TestCase):
         self.journal=r.Journal(self.temp.name);self.portal=Mock();self.portal.call.return_value={'ok':True,'asset':None};self.portal.render_output.return_value={'asset':ASSET,'sha256':DIGEST}
         self.render=patch.object(r,'render_process',side_effect=fixture).start();self.addCleanup(patch.stopall)
     def run_task(self,c=None,valid=lambda:True):return r.render_ambient(c or context(),self.portal,valid,self.journal)
+
+    def test_photo_retry_resubmits_only_after_confirmed_failure(self):
+        self.portal.render_photo_source.return_value = b"original photo"
+        spec = {"type": "photo-video", "mime": "image/png", "prompt": "Slow orbit",
+                "seed": 42, "digest": hashlib.sha256(b"original photo").hexdigest()}
+        job = context()["job"]
+        key = "photo-" + JID
+        self.journal.write(key, {"prompt_id": "first"})
+        with patch.object(r.comfyui, "wait", side_effect=[
+            r.ComfyUIError("Connection lost"), r.comfyui.WorkflowFailed("Failed"), {}
+        ]) as wait, patch.object(r.comfyui, "upload_photo", return_value="fixture.png"), \
+                patch.object(r.comfyui, "queue", return_value="second") as queue, \
+                patch.object(r.comfyui, "video_output", return_value=DATA):
+            with self.assertRaisesRegex(r.RuntimeFailure, "Connection lost"):
+                r.render_photo(self.portal, job, spec, lambda: True, self.journal)
+            self.assertEqual(self.journal.read(key), {"prompt_id": "first"})
+            with self.assertRaisesRegex(r.RuntimeFailure, "Failed"):
+                r.render_photo(self.portal, job, spec, lambda: True, self.journal)
+            queue.assert_not_called()
+            self.assertEqual(r.render_photo(self.portal, job, spec, lambda: True, self.journal), DATA)
+            queue.assert_called_once()
+            self.assertEqual([call.args[0] for call in wait.call_args_list], ["first", "first", "second"])
     def test_render_and_transfer_match_original_provenance(self):
         result=self.run_task();self.assertEqual(result['receipt'],'asset:'+ASSET);self.assertEqual(result['tokens'],0)
         self.portal.render_output.assert_called_once_with(JID,LEASE,DATA,DIGEST);self.assertEqual(self.portal.call.call_count,2)
