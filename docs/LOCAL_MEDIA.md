@@ -1,6 +1,6 @@
 # Local media generation
 
-Clip.api can use the ComfyUI instance already installed on this Mac for approved image-to-video or text-to-video workflows. The integration is loopback-only and token-free: cloud coordinators may produce instructions, but the local worker performs generation and returns a reviewable artifact.
+The Clip.api command line runs trusted ComfyUI workflows on the Mac and prints their output references. Generation uses the installed weights without a cloud model API call. Portal queue integration is still pending.
 
 ## Current machine
 
@@ -12,13 +12,18 @@ http://127.0.0.1:8188/
 
 It is currently running from `/Users/louisbrailey/local-media/ComfyUI` on an Apple M3 Max with 64 GB unified memory. The launcher is in the Desktop folder `local ai models`. Clip.api does not copy or re-download the model weights.
 
-Set this only in the worker environment:
+From the Clip.api checkout, run an installed API-format workflow:
 
 ```sh
-COMFYUI_URL=http://127.0.0.1:8188
+export COMFYUI_URL=http://127.0.0.1:8188
+python3 worker/comfyui.py ~/local-media/workflows/image-api.json \
+  --prompt-node 4 --prompt "A cyan ceramic camera on an indigo backdrop"
+python3 worker/comfyui.py ~/local-media/workflows/video-api.json --timeout 900
 ```
 
-The bounded client is [worker/comfyui.py](../worker/comfyui.py). It checks health, queues a trusted API-format workflow, and waits for one prompt with a timeout. It rejects non-loopback hosts and does not accept arbitrary URLs, shell commands or model-generated workflow changes.
+The image example replaces the text on node 4 of the installed image workflow. The video example runs the installed text-to-video workflow as saved. For image-to-video, export a locally configured image-to-video graph in ComfyUI API format and pass its file to the same command. Use workflows you have reviewed and keep any source files and model weights in ComfyUI's configured directories.
+
+The command prints a prompt ID first, then the output filenames and subfolders from ComfyUI's history. Open the files in ComfyUI's output directory and review them before importing them into Clip.api's content library. If the command times out, inspect that prompt ID in ComfyUI before submitting again. The timeout stops the command from waiting and the render can continue on the Mac.
 
 ## Model choice
 
