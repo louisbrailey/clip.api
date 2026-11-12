@@ -53,7 +53,7 @@ class ScheduleTests(unittest.TestCase):
         return job
     def row(self,id='recurring'):return self.db.execute('SELECT * FROM schedules WHERE id=?',(id,)).fetchone()
     def claim(self):
-        return self.db.execute(CLAIM,('lease',self.now+180000,'alice-worker',self.day,'alice','lease','alice-worker','alice','live',self.now,self.day,self.now,self.day)).fetchone()
+        return self.db.execute(CLAIM,('lease',self.now+180000,'alice-worker',self.day,'alice','lease','alice-worker','alice','live',self.now,self.day,0,self.now,self.day)).fetchone()
     def control(self,query,args):
         with self.db:
             result=self.db.execute(query,args).rowcount

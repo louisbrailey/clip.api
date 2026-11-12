@@ -274,7 +274,7 @@ function ControlRoom({ displayName }: { displayName: string }) {
       if (action === "schedule") navigate("schedules");
     }
   }
-  async function upload(e: FormEvent<HTMLFormElement>) {
+  async function upload(e: FormEvent<HTMLFormElement>, photo = false) {
     e.preventDefault();
     setBusy(true);
     setError("");
@@ -282,12 +282,13 @@ function ControlRoom({ displayName }: { displayName: string }) {
       const f = new FormData(e.currentTarget);
       if (f.get("expires"))
         f.set("expires", String(new Date(String(f.get("expires"))).getTime()));
-      const r = await fetch("/api/assets", { method: "POST", body: f });
+      const r = await fetch(photo ? "/api/photo-video" : "/api/assets", { method: "POST", body: f });
       const v = (await r.json()) as { error?: string };
       if (!r.ok) throw new Error(v.error || "Upload failed");
       setModal(null);
-      setMessage("Media and rights record saved");
+      setMessage(photo ? "Photo queued for local rendering" : "Media and rights record saved");
       await cache.invalidateQueries({ queryKey: ["workspace"] });
+      if (photo) navigate("queue");
     } catch (e) {
       setError(String(e instanceof Error ? e.message : e));
     } finally {
@@ -819,6 +820,15 @@ function ControlRoom({ displayName }: { displayName: string }) {
                       </p>
                     </div>
                     <div className="button-row">
+                      {process.env.NODE_ENV === "development" && (
+                        <Button variant="outline" onClick={() => {
+                          setRenderRequest(crypto.randomUUID());
+                          setError("");
+                          setModal("photo");
+                        }}>
+                          <Film size={15} /> Animate a photo
+                        </Button>
+                      )}
                       <Button
                         onClick={() => {
                           setRenderRequest(crypto.randomUUID());
@@ -1287,6 +1297,8 @@ function ControlRoom({ displayName }: { displayName: string }) {
                       ? "Add source media"
                       : modal === "render"
                         ? "Create an original ambient video"
+                        : modal === "photo"
+                          ? "Animate a photo"
                         : "Schedule a reviewed video publication"}
             </DialogTitle>
             <DialogDescription>
@@ -1300,6 +1312,8 @@ function ControlRoom({ displayName }: { displayName: string }) {
                       ? "Attach the source video and record your right to publish it."
                       : modal === "render"
                         ? "Choose the sound, color and duration for an original video in your private library."
+                        : modal === "photo"
+                          ? "Create a short MP4 on this Mac with ComfyUI. Keep the local worker running."
                         : "Review the exact title, description, account and source before approving the upload."}
             </DialogDescription>
           </DialogHeader>
@@ -1469,6 +1483,25 @@ function ControlRoom({ displayName }: { displayName: string }) {
                 {busy ? <Loader2 className="spin" /> : <Upload size={16} />}{" "}
                 Upload & save rights
               </Button>
+            </form>
+          )}
+          {modal === "photo" && (
+            <form className="form" onSubmit={(e) => upload(e, true)}>
+              <input type="hidden" name="request_id" value={renderRequest} />
+              <Field label="Clip title">
+                <Input name="title" minLength={3} maxLength={160} required />
+              </Field>
+              <Field label="Photo" hint="JPEG or PNG, up to 4 MiB. The preview is cropped to landscape.">
+                <Input name="photo" type="file" accept="image/jpeg,image/png" required />
+              </Field>
+              <Field label="Motion prompt">
+                <textarea name="prompt" maxLength={1200} required placeholder="Describe what should move and how the camera should move." />
+              </Field>
+              <label className="field">
+                <input name="approved" type="checkbox" required />
+                <span>I own this photo and approve this local render.</span>
+              </label>
+              <Button type="submit" disabled={busy}>Queue photo-to-video</Button>
             </form>
           )}
           {modal === "render" && (

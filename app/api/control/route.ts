@@ -1,4 +1,4 @@
-import { ambientSpec, renderPreflight } from "../../../lib/render";
+import { ambientSpec, localMediaEnabled, renderPreflight } from "../../../lib/render";
 import { xCaption } from "../../../lib/x-text";
 import { z } from "zod/v3";
 import { updateAgent } from "../../../lib/network";
@@ -272,7 +272,7 @@ export async function POST(request: Request) {
         owner,
         worker,
       ).run();
-      const j = await claim(owner, "live", token, worker);
+      const j = await claim(owner, "live", token, worker, body.photo_video === true && localMediaEnabled(request));
       return response(j ? await jobContext(owner, j) : { job: null });
     }
     if (action === "heartbeat") {
@@ -377,7 +377,7 @@ export async function POST(request: Request) {
           v.request_id,
         ).first<{ title: string; scheduled: number; render_spec: string }>();
         const recipe = previous
-          ? ambientSpec.parse(JSON.parse(previous.render_spec))
+          ? ambientSpec.safeParse(JSON.parse(previous.render_spec)).data
           : null;
         if (
           !previous ||

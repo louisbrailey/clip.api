@@ -27,9 +27,9 @@ export async function GET(
       id,
     ).first<{ object_key: string; name: string; mime: string }>();
     if (!asset) throw new ApiError("Media not found", 404);
-    const object = await bucket().get(asset.object_key, {
-      range: request.headers,
-    });
+    const object = await bucket().get(asset.object_key, request.headers.has("range")
+      ? { range: request.headers }
+      : undefined);
     if (!object) throw new ApiError("Media unavailable", 404);
     const headers = new Headers({
       "Content-Type": asset.mime,
@@ -37,7 +37,8 @@ export async function GET(
       "Accept-Ranges": "bytes",
       "X-Content-Type-Options": "nosniff",
     });
-    if (object.range && "offset" in object.range) {
+    const partial = request.headers.has("range") && !!object.range;
+    if (partial && object.range && "offset" in object.range) {
       const offset = object.range.offset ?? 0,
         length = object.range.length ?? object.size;
       headers.set(
@@ -47,7 +48,7 @@ export async function GET(
       headers.set("Content-Length", String(length));
     } else headers.set("Content-Length", String(object.size));
     return new Response(object.body, {
-      status: object.range ? 206 : 200,
+      status: partial ? 206 : 200,
       headers,
     });
   } catch (e) {

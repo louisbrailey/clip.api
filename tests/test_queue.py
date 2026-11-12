@@ -26,7 +26,7 @@ class QueueTests(unittest.TestCase):
         self.db.execute('INSERT INTO jobs('+','.join(data)+') VALUES('+','.join('?' for _ in data)+')',list(data.values()))
     def claim(self,key='key',owner='alice'):
         worker=owner+'-worker'
-        return self.db.execute(CLAIM,(key,self.now+180000,worker,self.day,owner,key,worker,owner,'live',self.now,self.day,self.now,self.day)).fetchone()
+        return self.db.execute(CLAIM,(key,self.now+180000,worker,self.day,owner,key,worker,owner,'live',self.now,self.day,0,self.now,self.day)).fetchone()
     def test_claim_is_fenced_and_reserves_budget(self):
         self.job('one');j=self.claim();self.assertEqual(j['reserve'],20000);self.assertEqual(j['status'],'running');self.assertEqual(j['attempts'],1);self.assertEqual(j['lease'],'key')
     def test_claim_request_key_cannot_claim_twice(self):
@@ -45,7 +45,7 @@ class QueueTests(unittest.TestCase):
         self.job('one');self.job('two',agent='ambient-editor')
         self.assertIsNotNone(self.claim())
         self.assertIsNone(self.claim('second'))
-        args=('third',self.now+180000,'alice-worker-2',self.day,'alice','third','alice-worker-2','alice','live',self.now,self.day,self.now,self.day)
+        args=('third',self.now+180000,'alice-worker-2',self.day,'alice','third','alice-worker-2','alice','live',self.now,self.day,0,self.now,self.day)
         self.assertEqual(self.db.execute(CLAIM,args).fetchone()['worker_id'],'alice-worker-2')
     def test_paused_worker_cannot_claim(self):
         self.db.execute("UPDATE workers SET paused=1 WHERE id='alice-worker'");self.job('one');self.assertIsNone(self.claim())

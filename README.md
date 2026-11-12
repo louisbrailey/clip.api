@@ -9,7 +9,7 @@ A private creative-operations portal for authorized social accounts. Astra deleg
 - **Enable live model work:** follow [Worker setup](#worker-setup) and the detailed [operating guide](docs/OPERATIONS.md). You need an always-on worker host, a portal worker key, the Sites machine token, and an OpenAI API key.
 - **Enable social publishing:** connect only accounts you own or are authorized to manage, using the provider requirements in [PLATFORMS.md](docs/PLATFORMS.md). Public publishing always remains a separate approval.
 - **Understand the system:** see [Architecture](docs/ARCHITECTURE.md), [operations](docs/OPERATIONS.md), [verification evidence](docs/VERIFICATION.md), and the [release checklist](docs/RELEASE.md).
-- **Generate locally:** see [Local media generation](docs/LOCAL_MEDIA.md) for the existing ComfyUI connection and supported model choices.
+- **Animate a photo locally:** use **Content library → Animate a photo** in the Mac's local portal. See [Local media generation](docs/LOCAL_MEDIA.md) for the worker and ComfyUI setup.
 
 The GitHub repository is named `clip.api`; the application and deployed portal are named **Constellation Studio**.
 
@@ -28,7 +28,7 @@ This is a functioning first release with production-oriented queue safeguards. *
 - Instagram professional-account reels through Meta’s resumable upload path, with account identity and quota checks, exact captions and no replay after an ambiguous publication. Provider calls are fixture-validated only.
 - Threads video posts through a public HTTPS media staging URL, account identity and quota checks, container status checks and exact approved text. Ambiguous publication outcomes are held for review. Provider calls are fixture-validated only.
 - Queued original ambient-video production with an approved 10–300-second noise/color recipe, optional operator-approved local narration, private library output and SHA-256 provenance. The worker performs actual FFmpeg rendering without model calls. Local licensed-clip trimming remains available separately.
-- Optional loopback ComfyUI client for trusted local image/video workflows; it never accepts remote hosts, arbitrary shell commands or unattended publishing instructions.
+- Local photo-to-video queue backed by ComfyUI and Wan 2.2 TI2V 5B, with zero model API tokens and the finished MP4 saved to the local library.
 - Rehearsals explicitly labeled as deterministic fixtures; they call no models and publish nothing.
 
 ## Local start

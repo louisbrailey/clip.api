@@ -1,36 +1,9 @@
 import { z } from "zod/v3";
 import { identity, ApiError, failure, response } from "../../../lib/auth";
 import { bucket, db, sql, now } from "../../../lib/store";
-import { renderPreflight, renderEligibility } from "../../../lib/render";
+import { boundedForm, renderPreflight, renderEligibility, localMediaEnabled } from "../../../lib/render";
 
 const MAX = 16 * 1024 * 1024;
-async function boundedForm(request: Request) {
-  if (Number(request.headers.get("content-length") || 0) > MAX + 12000)
-    throw new ApiError("Rendered media exceeds its upload limit", 413);
-  const reader = request.body?.getReader();
-  if (!reader) throw new ApiError("Rendered media is missing");
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > MAX + 12000) {
-      await reader.cancel();
-      throw new ApiError("Rendered media exceeds its upload limit", 413);
-    }
-    chunks.push(value);
-  }
-  const body = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) {
-    body.set(chunk, offset);
-    offset += chunk.length;
-  }
-  return new Response(body, {
-    headers: { "Content-Type": request.headers.get("content-type") || "" },
-  }).formData();
-}
 
 export async function POST(request: Request) {
   try {
@@ -51,9 +24,12 @@ export async function POST(request: Request) {
       id,
       lease,
     );
+    const isPhoto = "type" in spec;
+    if (isPhoto && !localMediaEnabled(request))
+      throw new ApiError("Photo rendering requires the local portal", 403);
     if (existing)
       return response({ asset: existing.id, sha256: existing.sha256 });
-    const form = await boundedForm(request),
+    const form = await boundedForm(request, MAX + 12000),
       file = form.get("file");
     if (!(file instanceof File) || file.size < 12 || file.size > MAX)
       throw new ApiError("Choose a rendered MP4 up to 16 MiB");
@@ -69,8 +45,10 @@ export async function POST(request: Request) {
       throw new ApiError("Rendered media digest does not match");
     const candidate = crypto.randomUUID(),
       key = `${owner}/${candidate}.mp4`,
-      name = `ambient-${spec.noise}-${id}.mp4`;
-    const evidence = spec.script
+      name = isPhoto ? `photo-video-${id}.mp4` : `ambient-${spec.noise}-${id}.mp4`;
+    const evidence = isPhoto
+      ? `Operator-approved original photo animated locally with Wan 2.2 TI2V 5B. Source SHA-256: ${spec.digest}. Output SHA-256: ${digest}.`
+      : spec.script
       ? "Original procedural ambient color video, synthesized noise and the operator-approved original narration script. Generated locally; no third-party footage, soundtrack or voice recording."
       : `Original procedural ${spec.theme} color video and synthesized ${spec.noise} noise; ${spec.seconds} seconds, seed ${spec.seed}. Rendered by the authorized worker with FFmpeg, without third-party footage or soundtrack. SHA-256: ${digest}.`;
     await bucket().put(key, bytes, {
@@ -114,7 +92,7 @@ export async function POST(request: Request) {
           "INSERT OR IGNORE INTO events(id,owner,type,message,job,created) SELECT ?,?,'media',?,?,? WHERE EXISTS(SELECT 1 FROM assets WHERE id=? AND owner=?)",
           `render-media-${id}`,
           owner,
-          `Generated original ${spec.noise} noise video`,
+          isPhoto ? "Generated local photo-to-video clip" : `Generated original ${spec.noise} noise video`,
           id,
           cutoff,
           candidate,

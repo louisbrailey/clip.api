@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 from pathlib import Path
 import time
 import urllib.error
@@ -46,19 +47,90 @@ def _base_url() -> str:
     return f"http://127.0.0.1:{port}"
 
 
-def _request(path: str, *, method: str = "GET", body: object | None = None, timeout: float = 10) -> object:
-    payload = json.dumps(body).encode() if body is not None else None
+def _read(path, *, method="GET", payload=None, headers=None, timeout=10, limit=10 * 1024 * 1024):
     request = urllib.request.Request(
         _base_url() + path,
         data=payload,
         method=method,
-        headers={"Content-Type": "application/json"} if payload else {},
+        headers=headers or {},
     )
     try:
         with HTTP.open(request, timeout=timeout) as response:
-            return json.loads(response.read(10 * 1024 * 1024))
-    except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
-        raise ComfyUIError("ComfyUI is unavailable or returned invalid JSON") from exc
+            data = response.read(limit + 1)
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+        raise ComfyUIError("ComfyUI request failed. Check its console and installed models.") from None
+    if len(data) > limit:
+        raise ComfyUIError("ComfyUI response exceeded its size limit")
+    return data
+
+
+def _decode(data):
+    try:
+        return json.loads(data)
+    except ValueError:
+        raise ComfyUIError("ComfyUI returned invalid JSON") from None
+
+
+def _request(path: str, *, method: str = "GET", body: object | None = None, timeout: float = 10) -> object:
+    payload = json.dumps(body).encode() if body is not None else None
+    headers = {"Content-Type": "application/json"} if payload else None
+    return _decode(_read(path, method=method, payload=payload, headers=headers, timeout=timeout))
+
+
+def upload_photo(data, mime, job_id):
+    boundary = uuid.uuid4().hex
+    ext = "png" if mime == "image/png" else "jpg"
+    filename = f"clip-api-{job_id}.{ext}"
+    body = (
+        f'--{boundary}\r\nContent-Disposition: form-data; name="image"; filename="{filename}"\r\n'
+        f"Content-Type: {mime}\r\n\r\n"
+    ).encode() + data + f"\r\n--{boundary}--\r\n".encode()
+    result = _decode(_read("/upload/image", method="POST", payload=body, headers={
+        "Content-Type": f"multipart/form-data; boundary={boundary}",
+    }, timeout=30))
+    if not isinstance(result, dict) or result.get("name") != filename or result.get("subfolder") != "" or result.get("type") != "input":
+        raise ComfyUIError("ComfyUI did not accept the expected source photo")
+    return filename
+
+
+def photo_workflow(filename, prompt, seed, job_id):
+    # Based on ComfyUI's native Wan 2.2 TI2V template, with a fixed preview size.
+    def node(kind, **inputs):
+        return {"class_type": kind, "inputs": inputs}
+
+    return {
+        "1": node("UNETLoader", unet_name="wan2.2_ti2v_5B_fp16.safetensors", weight_dtype="default"),
+        "2": node("CLIPLoader", clip_name="umt5_xxl_fp16.safetensors", type="wan", device="default"),
+        "3": node("VAELoader", vae_name="wan2.2_vae.safetensors"),
+        "4": node("LoadImage", image=filename),
+        "5": node("CLIPTextEncode", clip=["2", 0], text=prompt),
+        "6": node("CLIPTextEncode", clip=["2", 0], text="blurry, distorted, flickering, static"),
+        "7": node("Wan22ImageToVideoLatent", vae=["3", 0], start_image=["4", 0],
+                  width=384, height=224, length=33, batch_size=1),
+        "8": node("ModelSamplingSD3", model=["1", 0], shift=8),
+        "9": node("KSampler", model=["8", 0], positive=["5", 0], negative=["6", 0],
+                  latent_image=["7", 0], seed=seed, steps=20, cfg=5, sampler_name="uni_pc",
+                  scheduler="simple", denoise=1),
+        "10": node("VAEDecode", samples=["9", 0], vae=["3", 0]),
+        "11": node("CreateVideo", images=["10", 0], fps=16.0),
+        "12": node("SaveVideo", video=["11", 0], filename_prefix=f"ClipAPI/{job_id}",
+                   format="mp4", codec={"codec": "h264"}),
+    }
+
+
+def video_output(result, job_id):
+    try:
+        files = result["outputs"]["12"]["images"]
+        item, = files
+        name = item["filename"]
+        if item["type"] != "output" or item["subfolder"] != "ClipAPI" or not re.fullmatch(
+            re.escape(job_id) + r"_\d+_\.mp4", name
+        ):
+            raise ValueError
+    except (KeyError, TypeError, ValueError):
+        raise ComfyUIError("ComfyUI did not return the expected MP4") from None
+    query = urllib.parse.urlencode({"filename": name, "subfolder": "ClipAPI", "type": "output"})
+    return _read("/view?" + query, timeout=30, limit=16 * 1024 * 1024)
 
 
 def health() -> dict:
@@ -85,12 +157,14 @@ def queue(workflow: dict, *, client_id: str | None = None) -> str:
     return prompt_id
 
 
-def wait(prompt_id: str, *, timeout: float = 900, poll: float = 1.0) -> dict:
+def wait(prompt_id: str, *, timeout: float = 900, poll: float = 1.0, lease_valid=lambda: True) -> dict:
     """Wait for one queued prompt, bounded by a caller-supplied timeout."""
     if not prompt_id or len(prompt_id) > 200:
         raise ComfyUIError("Invalid ComfyUI prompt id")
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
+        if not lease_valid():
+            raise ComfyUIError("Render lease lost while ComfyUI was running")
         value = _request("/history/" + urllib.parse.quote(prompt_id, safe=""), timeout=min(15, max(0.1, deadline - time.monotonic())))
         if isinstance(value, dict) and prompt_id in value:
             item = value[prompt_id]

@@ -267,6 +267,7 @@ export async function claim(
   mode: string,
   token: string,
   worker: string,
+  photoVideo = false,
 ) {
   await sweep(owner);
   const existing = await sql(
@@ -298,6 +299,7 @@ export async function claim(
       AND (SELECT COUNT(*) FROM jobs r WHERE r.owner=j.owner AND r.status='running' AND r.agent=j.agent) < a.concurrency
       AND (j.mode='rehearsal' OR j.kind IN ('publish','render') OR (SELECT COALESCE(SUM(tokens),0) FROM usage b WHERE b.owner=j.owner AND b.day=?)+(SELECT COALESCE(SUM(reserve),0) FROM jobs b WHERE b.owner=j.owner)+20000 <= s.daily_tokens)
       AND (j.kind!='render' OR (j.approved=1 AND j.lane='ambient' AND j.render_spec IS NOT NULL))
+      AND (?=1 OR j.kind!='render' OR COALESCE(json_extract(j.render_spec,'$.type'),'')!='photo-video')
       AND (j.kind!='publish' OR (j.approved=1 AND EXISTS(SELECT 1 FROM accounts c JOIN assets m ON m.id=j.asset AND m.owner=j.owner WHERE c.id=j.account AND c.owner=j.owner AND c.authorized=1 AND c.paused=0 AND (m.expires IS NULL OR m.expires>?) AND m.rights IN ('original','licensed','public-domain')
         AND NOT EXISTS(SELECT 1 FROM jobs p WHERE p.owner=j.owner AND p.account=j.account AND p.status IN ('running','uncertain'))
         AND (SELECT COUNT(*) FROM jobs p WHERE p.owner=j.owner AND p.account=j.account AND p.kind='publish' AND p.status='succeeded' AND p.billed_day=?) < c.daily_limit)))
@@ -314,6 +316,7 @@ export async function claim(
     mode,
     cutoff,
     billingDay,
+    Number(photoVideo),
     cutoff,
     billingDay,
   ).first<Job>();
