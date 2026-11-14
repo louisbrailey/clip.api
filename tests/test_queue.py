@@ -24,9 +24,17 @@ class QueueTests(unittest.TestCase):
     def job(self,id,owner='alice',agent='ambient-writer',kind='draft',**kw):
         data={'id':id,'owner':owner,'agent':agent,'title':id,'brief':'Original work','lane':'ambient','mode':'live','kind':kind,'created':self.now,'scheduled':self.now,**kw}
         self.db.execute('INSERT INTO jobs('+','.join(data)+') VALUES('+','.join('?' for _ in data)+')',list(data.values()))
-    def claim(self,key='key',owner='alice'):
+    def claim(self,key='key',owner='alice',photo_mode=0):
         worker=owner+'-worker'
-        return self.db.execute(CLAIM,(key,self.now+180000,worker,self.day,owner,key,worker,owner,'live',self.now,self.day,0,self.now,self.day)).fetchone()
+        return self.db.execute(CLAIM,(key,self.now+180000,worker,self.day,owner,key,worker,owner,'live',self.now,self.day,photo_mode,self.now,self.day)).fetchone()
+
+    def test_photo_only_worker_skips_other_queued_jobs(self):
+        self.job('a-draft')
+        self.job('b-ambient',kind='render',approved=1,render_spec='{}')
+        self.assertIsNone(self.claim(photo_mode=2))
+        self.job('c-photo',kind='render',approved=1,render_spec='{"type":"photo-video"}')
+        job=self.claim(photo_mode=2)
+        self.assertEqual((job['id'],job['reserve']),('c-photo',0))
     def test_claim_is_fenced_and_reserves_budget(self):
         self.job('one');j=self.claim();self.assertEqual(j['reserve'],20000);self.assertEqual(j['status'],'running');self.assertEqual(j['attempts'],1);self.assertEqual(j['lease'],'key')
     def test_claim_request_key_cannot_claim_twice(self):

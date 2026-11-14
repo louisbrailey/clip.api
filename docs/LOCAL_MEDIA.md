@@ -19,11 +19,13 @@ Use the local Clip.api portal to animate an original photo with ComfyUI. The bro
      WORKER_CONCURRENCY=1 \
      JOURNAL_DIR=./worker-state/local-photo \
      CONSTELLATION_WORKER_KEY="$CONSTELLATION_WORKER_KEY" \
-     python3 worker/runtime.py
+     python3 worker/runtime.py --photo-only
    unset CONSTELLATION_WORKER_KEY
    ```
 
 4. Open **Content library → Animate a photo**. Choose an original JPEG or PNG up to 4 MiB, describe the motion, and confirm you own the image. Select **Queue photo-to-video**. The Work queue shows progress, and the finished job has **Open generated video**.
+
+The `--photo-only` worker claims only ComfyUI photo-to-video jobs. Other workers can handle ambient rendering, model work, and publishing separately.
 
 The Wan 2.2 TI2V 5B preset creates a silent 384 × 224 H.264 preview with 33 frames at 16 fps. It center-crops the photo to landscape. The worker uses the existing render lease and saves one canonical MP4 in the local library. Generation uses zero cloud model tokens. Source photos remain in local portal storage and ComfyUI's input directory. The worker journal remembers accepted ComfyUI prompt IDs across retries on the same Mac. If submission was interrupted before a prompt ID was saved, inspect the ComfyUI queue before creating a replacement job.
 

@@ -789,7 +789,7 @@ class Worker:
             except RuntimeFailure:
                 # The durable receipt remains for manual reconciliation. Never reupload.
                 pass
-    def run(self, concurrency=2, once=False):
+    def run(self, concurrency=2, once=False, photo_only=False):
         self.recover()
         request_id=str(uuid.uuid4())
         with concurrent.futures.ThreadPoolExecutor(max_workers=concurrency) as pool:
@@ -800,9 +800,17 @@ class Worker:
                     STOP.wait(.5);continue
                 try:
                     capabilities = {"photo_video": True} if getattr(self.portal, "photo_video", False) else {}
+                    if photo_only:
+                        capabilities["photo_only"] = True
                     context=self.portal.call("claim",request_id=request_id,**capabilities)
                     request_id=str(uuid.uuid4())
                     if context.get("job"):
+                        if photo_only:
+                            job = context["job"]
+                            recipe = json.loads(job.get("render_spec") or "null")
+                            if job.get("kind") != "render" or not isinstance(recipe, dict) or recipe.get("type") != "photo-video":
+                                print(json.dumps({"event":"startup_failed","message":"The portal must support photo-only claims before this worker can run"}), flush=True)
+                                raise SystemExit(1)
                         future=pool.submit(self.process,context);active.add(future)
                         if once: future.result();return
                     elif once: return
@@ -814,7 +822,11 @@ class Worker:
                     STOP.wait(10+random.random()*5)
 
 def main():
-    p=argparse.ArgumentParser();p.add_argument("--once",action="store_true");p.add_argument("--comfy-health",action="store_true");args=p.parse_args()
+    p = argparse.ArgumentParser()
+    p.add_argument("--once", action="store_true")
+    p.add_argument("--comfy-health", action="store_true")
+    p.add_argument("--photo-only", action="store_true", help="Claim only local ComfyUI photo-to-video jobs")
+    args = p.parse_args()
     if args.comfy_health:
         try:
             print(json.dumps(comfy_health()), flush=True)
@@ -826,9 +838,12 @@ def main():
         concurrency=int(os.getenv("WORKER_CONCURRENCY","2"))
         if not 1<=concurrency<=32: raise RuntimeFailure("WORKER_CONCURRENCY must be between 1 and 32")
         portal=Portal(os.getenv("CONSTELLATION_URL",""),os.getenv("CONSTELLATION_WORKER_KEY",""))
-        worker=Worker(portal,Journal(os.getenv("JOURNAL_DIR","./worker-state")))
+        if args.photo_only and not portal.photo_video:
+            raise RuntimeFailure("--photo-only requires COMFYUI_URL and the loopback portal")
+        default_journal = "./worker-state/local-photo" if args.photo_only else "./worker-state"
+        worker=Worker(portal,Journal(os.getenv("JOURNAL_DIR",default_journal)))
         signal.signal(signal.SIGTERM,lambda *_:STOP.set());signal.signal(signal.SIGINT,lambda *_:STOP.set())
-        worker.run(concurrency,args.once)
+        worker.run(concurrency,args.once,args.photo_only)
     except (RuntimeFailure,ValueError) as e:
         message = str(e) if isinstance(e, RuntimeFailure) else "Invalid worker configuration"
         print(json.dumps({"event":"startup_failed","message":message}),flush=True);raise SystemExit(1)

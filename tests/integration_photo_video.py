@@ -7,6 +7,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.request
 import uuid
@@ -44,6 +45,11 @@ def main():
     photo = source.read_bytes()
     assert photo.startswith(b"\x89PNG\r\n\x1a\n"), "Use an original PNG test photo"
     assert request("/signin-with-chatgpt?return_to=/")[0] == 200
+    ambient_id = str(uuid.uuid4())
+    status, _ = control("ambient-render", request_id=ambient_id, title="Unrelated ambient job",
+                        seconds=10, noise="pink", theme="ocean", approved=True,
+                        scheduled=int(time.time()*1000) - 60000)
+    assert status == 200, status
     boundary = uuid.uuid4().hex
     request_id = str(uuid.uuid4())
 
@@ -70,7 +76,13 @@ def main():
     assert status == 200, status
     key = json.loads(data)["token"]
     status, data = control("claim", key=key, request_id=str(uuid.uuid4()))
-    assert status == 200 and json.loads(data)["job"] is None, "Worker without ComfyUI claimed the job"
+    claim = json.loads(data)["job"]
+    assert status == 200 and claim["id"] == ambient_id, "Worker without ComfyUI claimed the photo job"
+    status, _ = control("complete", key=key, id=ambient_id, lease=claim["lease"],
+                        status="failed", error="Fixture released by smoke test")
+    assert status == 200, status
+    status, _ = control("retry", id=ambient_id)
+    assert status == 200, status
     status, _ = request("/api/photo-video", key=key, extra={
         "X-Render-Job": request_id, "X-Render-Lease": str(uuid.uuid4()),
     })
@@ -80,12 +92,14 @@ def main():
         env = {"PATH": os.environ["PATH"], "CONSTELLATION_URL": BASE,
                "CONSTELLATION_WORKER_KEY": key, "COMFYUI_URL": "http://127.0.0.1:8188",
                "JOURNAL_DIR": journal, "WORKER_CONCURRENCY": "1"}
-        subprocess.run([sys.executable, str(ROOT / "worker/runtime.py"), "--once"],
+        subprocess.run([sys.executable, str(ROOT / "worker/runtime.py"), "--once", "--photo-only"],
                        env=env, check=True, timeout=1020)
     status, data = request("/api/control?q=" + request_id)
     assert status == 200
     job = next(job for job in json.loads(data)["jobs"] if job["id"] == request_id)
     assert job["status"] == "succeeded" and job["tokens"] == 0, job.get("error")
+    status, data = request("/api/control?q=" + ambient_id)
+    assert status == 200 and json.loads(data)["jobs"][0]["status"] == "queued"
     asset = job["asset"]
     assert job["receipt"] == "asset:" + asset
     status, data = request("/api/assets/" + asset)

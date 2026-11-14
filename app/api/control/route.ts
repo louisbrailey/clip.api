@@ -272,7 +272,11 @@ export async function POST(request: Request) {
         owner,
         worker,
       ).run();
-      const j = await claim(owner, "live", token, worker, body.photo_video === true && localMediaEnabled(request));
+      const photoVideo = body.photo_video === true && localMediaEnabled(request);
+      const photoOnly = body.photo_only === true;
+      if (photoOnly && !photoVideo)
+        throw new ApiError("A photo-only worker requires the local photo queue", 400);
+      const j = await claim(owner, "live", token, worker, photoVideo, photoOnly);
       return response(j ? await jobContext(owner, j) : { job: null });
     }
     if (action === "heartbeat") {
