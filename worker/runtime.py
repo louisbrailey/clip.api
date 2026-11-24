@@ -1,4 +1,4 @@
-"""Bounded, supervised Constellation worker. Python 3.11+, no third-party packages.
+"""Bounded, supervised Clip.api worker. Python 3.11+, no third-party packages.
 
 A task never grants a shell, browser, arbitrary URL or engagement tool to a model.
 Provider credentials are read only from environment variables on this machine.
@@ -675,7 +675,7 @@ def render_photo(portal, j, spec, lease_valid, journal):
             journal.write(journal_key, {"submitting": True})
             prompt_id = comfyui.queue(comfyui.photo_workflow(filename, spec["prompt"], spec["seed"], j["id"]))
             journal.write(journal_key, {"prompt_id": prompt_id})
-        result = comfyui.wait(prompt_id, timeout=900, lease_valid=lease_valid)
+        result = comfyui.wait(prompt_id, timeout=1800, lease_valid=lease_valid)
         return comfyui.video_output(result, j["id"])
     except comfyui.WorkflowFailed as exc:
         # A later operator retry can submit again after a confirmed failure.

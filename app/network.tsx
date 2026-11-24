@@ -276,7 +276,7 @@ export default function NetworkWorkspace({
             <section className="network-panel">
               <div className="panel-heading">
                 <div>
-                  <span className="eyebrow">THE CONSTELLATION</span>
+                  <span className="eyebrow">AGENT NETWORK</span>
                   <h2>
                     {data.focus.name}
                     <span className="count-pill">

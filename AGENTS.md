@@ -1,8 +1,8 @@
-# Clip.api / Constellation Studio working instructions
+# Clip.api working instructions
 
 Read: README.md.
 
-GitHub repository name is clip.api; application name remains Constellation Studio. app/components/lib contain the portal, worker the Python worker, tests the fixtures. Preserve rights checks, explicit publication approvals, queue leases, idempotency and budget controls. CI uses fixtures only: no provider credentials, publication, live generation or deployment. Existing Sites deployment is configured separately.
+Project and application name is Clip.api. app/components/lib contain the portal, worker the Python worker, tests the fixtures. Preserve rights checks, explicit publication approvals, queue leases, idempotency and budget controls. CI uses fixtures only: no provider credentials, publication, live generation or deployment. Existing Sites deployment is configured separately.
 
 Start with the listed entry points and `devkit context` if available (or read .toolkit.json).
 Use rg for scoped text searches and ast-grep for code structure. Read matching sections,

@@ -93,7 +93,7 @@ def main():
                "CONSTELLATION_WORKER_KEY": key, "COMFYUI_URL": "http://127.0.0.1:8188",
                "JOURNAL_DIR": journal, "WORKER_CONCURRENCY": "1"}
         subprocess.run([sys.executable, str(ROOT / "worker/runtime.py"), "--once", "--photo-only"],
-                       env=env, check=True, timeout=1020)
+                       env=env, check=True, timeout=1920)
     status, data = request("/api/control?q=" + request_id)
     assert status == 200
     job = next(job for job in json.loads(data)["jobs"] if job["id"] == request_id)

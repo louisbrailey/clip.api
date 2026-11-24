@@ -1,17 +1,17 @@
-# Constellation Studio
+# Clip.api
 
 A private creative-operations portal for authorized social accounts. Astra delegates production work to studio leads, writers and editors. The operator can inspect the delegation tree, pause agents, edit instructions, set execution limits, schedule work, register accounts, upload source media and inspect the audit trail.
 
 ## Start here
 
-- **Open the private portal:** [Constellation Studio](https://constellation-studio-lb.louis-brailey.chatgpt.site). On the configured Mac, the **Clip.api** app on the Desktop opens this same address.
+- **Open the private portal:** [Clip.api](https://constellation-studio-lb.louis-brailey.chatgpt.site). On the configured Mac, the **Clip.api** app on the Desktop opens this same address.
 - **Explore without credentials:** choose **Try a rehearsal**, open **Work queue**, then run each rehearsal step. Rehearsals use fixtures and publish nothing.
 - **Enable live model work:** follow [Worker setup](#worker-setup) and the detailed [operating guide](docs/OPERATIONS.md). You need an always-on worker host, a portal worker key, the Sites machine token, and an OpenAI API key.
 - **Enable social publishing:** connect only accounts you own or are authorized to manage, using the provider requirements in [PLATFORMS.md](docs/PLATFORMS.md). Public publishing always remains a separate approval.
 - **Understand the system:** see [Architecture](docs/ARCHITECTURE.md), [operations](docs/OPERATIONS.md), [verification evidence](docs/VERIFICATION.md), and the [release checklist](docs/RELEASE.md).
 - **Animate a photo locally:** use **Content library → Animate a photo** in the Mac's local portal. See [Local media generation](docs/LOCAL_MEDIA.md) for the worker and ComfyUI setup.
 
-The GitHub repository is named `clip.api`; the application and deployed portal are named **Constellation Studio**.
+The application, project folder, and GitHub repository are named **Clip.api**.
 
 This is a functioning first release with production-oriented queue safeguards. **It is not a verified 24/7 production deployment or a million-model system.** The portal and rehearsals work without external credentials. Live model execution, private YouTube uploads, X posts and Meta publishing require a configured worker, approved provider credentials and an authenticated machine connection. Instagram reels now use a direct resumable-upload worker adapter. Threads posts now use a direct worker adapter with an explicitly approved public HTTPS staging URL. TikTok and Snapchat remain manual handoff paths because their current provider approval models do not support the unattended setup here. No account creation, engagement amplification, scraping, or unauthorized clip reposting is included.
 

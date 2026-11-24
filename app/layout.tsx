@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Constellation · Creative Operations",
+  title: "Clip.api · Creative Operations",
   description: "Your private control room for creative teams, authorized publishing and Astra-led delegation.",
   other: {
     "codex-preview": "development",

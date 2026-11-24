@@ -321,12 +321,12 @@ function ControlRoom({ displayName }: { displayName: string }) {
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <Link className="brand" href="/" aria-label="Constellation home">
+        <Link className="brand" href="/" aria-label="Clip.api home">
           <span className="brand-mark">
             <Sparkles size={23} />
           </span>
           <span>
-            constellation<span className="brand-sub">CREATIVE OPERATIONS</span>
+            Clip.api<span className="brand-sub">CREATIVE OPERATIONS</span>
           </span>
         </Link>
         <div className="workspace-switch">
@@ -939,7 +939,7 @@ function ControlRoom({ displayName }: { displayName: string }) {
                     <Button
                       variant="outline"
                       onClick={() =>
-                        download("constellation-activity.json", s.events)
+                        download("clip-api-activity.json", s.events)
                       }
                     >
                       <Download size={15} /> Export log
@@ -1249,7 +1249,7 @@ function ControlRoom({ displayName }: { displayName: string }) {
               )}
               <footer className="workspace-footer">
                 <span>
-                  <span className="tiny-star">✳</span> CONSTELLATION
+                  <span className="tiny-star">✳</span> CLIP.API
                 </span>
                 <span>Astra orchestrates. You direct.</span>
                 <span>Original & authorized content only</span>
