@@ -2,6 +2,8 @@
 
 ## Local photo-to-video
 
+The Clip.api branding release also verified recovery after a cold model load exceeded the test runner's original ten-minute limit. The worker resumed the saved ComfyUI prompt after its queue lease expired, completed the same portal job, and downloaded a digest-matching MP4. All 33 H.264 frames decoded at 384 × 224 and 16 fps. The worker now waits up to 30 minutes for cold loading and generation. Local runtime data uses the persistent project directory.
+
 The local portal accepted an original PNG and a motion prompt, queued one approved render without a token reservation, and rejected replay with a different prompt and source reads without a valid lease. A real Mac worker ran the installed Wan 2.2 TI2V 5B graph in ComfyUI, saved the MP4 to the local library, and completed the job with zero tokens. The portal download matched its recorded SHA-256, and all 33 frames decoded as H.264 at 384 × 224 and 16 fps. A second job submitted through the browser form played to the end in Chrome. The first download check exposed a whole-file request incorrectly receiving HTTP 206. Full requests now return HTTP 200, and explicit byte-range requests still return HTTP 206.
 
 Development verification performed September 11–15, 2026. This file records the scope of evidence and its limits.

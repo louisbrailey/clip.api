@@ -29,6 +29,8 @@ The `--photo-only` worker claims only ComfyUI photo-to-video jobs. Other workers
 
 Use the default project-local database storage for normal use. Temporary test directories can be cleared by macOS. Cold loading the models from the external drive can take over 12 minutes. The worker waits up to 30 minutes, maintains its lease, and retains the ComfyUI prompt ID for recovery.
 
+For the live integration check, use `devkit run --timeout 2100 -- python3 tests/integration_photo_video.py /absolute/path/original.png outputs/new-test-clip.mp4` against a disposable local test portal. Choose a new output filename each run. This permits the worker's complete wait period.
+
 The Wan 2.2 TI2V 5B preset creates a silent 384 × 224 H.264 preview with 33 frames at 16 fps. It center-crops the photo to landscape. The worker uses the existing render lease and saves one canonical MP4 in the local library. Generation uses zero cloud model tokens. Source photos remain in local portal storage and ComfyUI's input directory. The worker journal remembers accepted ComfyUI prompt IDs across retries on the same Mac. If submission was interrupted before a prompt ID was saved, inspect the ComfyUI queue before creating a replacement job.
 
 The preset needs `wan2.2_ti2v_5B_fp16.safetensors` in `diffusion_models`, `wan2.2_vae.safetensors` in `vae`, and `umt5_xxl_fp16.safetensors` in `text_encoders`. These are installed on the configured Mac's model drive. For another machine, see the [official Wan workflow](https://docs.comfy.org/tutorials/video/wan/wan2_2). The FP16 text encoder is used on this Mac in place of the template's FP8 variant.
